@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -e
+
+echo "Creating /run/sshd"
+mkdir -p /run/sshd
+
+SSH_DIR=/data/etc/ssh
+
+echo "Ensure SSH host keys"
+mkdir -p $SSH_DIR
+ssh-keygen -A -f /data
+
+echo "Setup SSH access for root"
+mkdir -p /root/.ssh
+echo "$SSH_AUTHORIZED_KEYS" > /root/.ssh/authorized_keys
+
+if [[ -d "docker-entrypoint.d" ]]
+then
+echo "Running docker-entrypoint.d files"
+/bin/run-parts --verbose docker-entrypoint.d
+fi
+
+echo "Starting cron jobs"
+cron
+
+echo "Running $@"
+
+exec "$@"

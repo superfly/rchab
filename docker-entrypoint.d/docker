@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -e
+
+if [[ -z "$USE_DOCKER" ]]; then exit 0; fi
+
+echo "Setting up Docker..."
+
+mkdir -p /data/docker /etc/docker
+
+echo '{"data-root": "/data/docker", "ipv6": true, "fixed-cidr-v6": "2001:db8:1::/64"}' > /etc/docker/daemon.json
+
+service docker start
+sleep 2
+
+set +e
+
+ip -6 route add 2001:db8:1::/64 dev docker0
+sysctl net.ipv6.conf.default.forwarding=1
+sysctl net.ipv6.conf.all.forwarding=1
+
+ip6tables -t nat -A POSTROUTING -s 2001:db8:1::/64 -j MASQUERADE
+
+echo "Done setting up docker!"
