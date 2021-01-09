@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"io"
 	"net"
@@ -12,11 +13,34 @@ import (
 	"github.com/superfly/flyctl/api"
 )
 
+type ctxKey string
+
+var (
+	appNameKey     = ctxKey("app-name")
+	accessTokenKey = ctxKey("access-token")
+)
+
+var orgSlug = os.Getenv("ALLOW_ORG_SLUG")
+
 func main() {
-	logrus.Fatal(http.ListenAndServe(":8080", basicAuth(proxy())))
+	logrus.Fatal(http.ListenAndServe(":8080", verifyHost(basicAuth(verifyApp(proxy())))))
 }
 
-func basicAuth(h http.Handler) http.Handler {
+// check that DOCKER_HOST is tcp://<org slug>:2375
+func verifyHost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, _ := net.SplitHostPort(r.Host)
+		if host != orgSlug {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// get app name and access token from Proxy-Authorization
+// set them on the request context for later use
+func basicAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logrus.Infof("%s %s", r.Method, r.URL)
 		proxyauth := r.Header.Get("Proxy-Authorization")
@@ -31,6 +55,28 @@ func basicAuth(h http.Handler) http.Handler {
 			return
 		}
 
+		ctx := context.WithValue(context.WithValue(r.Context(), appNameKey, appName), accessTokenKey, accessToken)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// retrieve app and validate org is allowed
+func verifyApp(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		appName, ok := r.Context().Value(appNameKey).(string)
+		if !ok {
+			logrus.Error("something is seriously wrong, couldn't get appName")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		accessToken, ok := r.Context().Value(accessTokenKey).(string)
+		if !ok {
+			logrus.Error("something is seriously wrong, couldn't get accessToken")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
 		api.SetBaseURL("https://api.fly.io")
 		fly := api.NewClient(accessToken, "0.0.0.0.0.0.1")
 		app, err := fly.GetApp(appName)
@@ -40,16 +86,17 @@ func basicAuth(h http.Handler) http.Handler {
 			return
 		}
 
-		if app.Organization.Slug != os.Getenv("ALLOW_ORG_SLUG") {
+		if app.Organization.Slug != orgSlug {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte("Wrong organization"))
 			return
 		}
 
-		h.ServeHTTP(w, r)
+		next.ServeHTTP(w, r)
 	})
 }
 
+// proxy to docker sock, by hijacking the connection
 func proxy() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		target := "/var/run/docker.sock"

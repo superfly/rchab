@@ -2,14 +2,13 @@ FROM golang:1.15 as build
 
 WORKDIR /app
 
-COPY dockerproxy/go.mod go.mod
-COPY dockerproxy/go.sum go.sum
+ENV GO111MODULE=on
+# COPY dockerproxy/go.mod go.mod
+# COPY dockerproxy/go.sum go.sum
 
 # RUN go mod download
 
 COPY dockerproxy .
-
-ENV GO111MODULE=on
 
 RUN go build -o dockerproxy
 
