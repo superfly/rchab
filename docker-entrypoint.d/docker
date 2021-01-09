@@ -2,8 +2,6 @@
 
 set -e
 
-if [[ -z "$USE_DOCKER" ]]; then exit 0; fi
-
 echo "Setting up Docker..."
 
 mkdir -p /data/docker /etc/docker

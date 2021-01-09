@@ -1,8 +1,23 @@
+FROM golang:1.15 as build
+
+WORKDIR /app
+
+COPY dockerproxy/go.mod go.mod
+COPY dockerproxy/go.sum go.sum
+
+# RUN go mod download
+
+COPY dockerproxy .
+
+ENV GO111MODULE=on
+
+RUN go build -o dockerproxy
+
 FROM ubuntu:bionic
 
 RUN apt-get update && apt-get install --no-install-recommends -y \
-    ca-certificates curl sudo openssh-server bash git \
-    cron net-tools dnsutils iproute2 \
+    ca-certificates curl sudo bash git \
+    net-tools dnsutils iproute2 \
     apt-transport-https gnupg-agent software-properties-common \
     && apt autoremove -y
 
@@ -19,20 +34,11 @@ RUN apt-get install --no-install-recommends -y iptables libdevmapper1.02.1 \
     && curl -L "https://github.com/docker/compose/releases/download/1.27.4/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose \
     && chmod +x usr/local/bin/docker-compose
 
-# Add crontab file in the cron directory
-COPY crontab /etc/cron.d/crontab
-
-# Give execution rights on the cron job
-RUN chmod 0644 /etc/cron.d/crontab \
-    && /usr/bin/crontab /etc/cron.d/crontab
-
-# Setup your SSH server daemon, copy pre-generated keys
-RUN rm -rf /etc/ssh/ssh_host_*_key*
-COPY etc/ssh/sshd_config /etc/ssh/sshd_config
+COPY --from=build /app/dockerproxy /dockerproxy
 
 COPY ./entrypoint ./entrypoint
 COPY ./docker-entrypoint.d/* ./docker-entrypoint.d/
 
 ENTRYPOINT ["./entrypoint"]
 
-CMD ["/usr/sbin/sshd", "-D"]
+CMD ["/dockerproxy"]
