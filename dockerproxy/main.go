@@ -15,7 +15,7 @@ import (
 
 type ctxKey string
 
-var (
+const (
 	appNameKey     = ctxKey("app-name")
 	accessTokenKey = ctxKey("access-token")
 )
