@@ -25,13 +25,18 @@ const (
 )
 
 var orgSlug = os.Getenv("ALLOW_ORG_SLUG")
+var log = logrus.New()
 
 func main() {
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		lvl = logrus.InfoLevel
 	}
-	logrus.SetLevel(lvl)
+	log.SetLevel(lvl)
+	log.SetFormatter(&logrus.TextFormatter{
+		TimestampFormat: "2006-01-02T15:04:05.000000000Z07:00",
+		FullTimestamp:   true,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -41,17 +46,17 @@ func main() {
 	dockerd.Stderr = os.Stderr
 
 	if err := dockerd.Start(); err != nil {
-		logrus.Fatalf("could not start dockerd: %v", err)
+		log.Fatalf("could not start dockerd: %v", err)
 	}
 
 	dockerDone := make(chan struct{})
 
 	go func() {
 		if err := dockerd.Wait(); err != nil {
-			logrus.Errorf("error waiting on docker: %v", err)
+			log.Errorf("error waiting on docker: %v", err)
 		}
 		close(dockerDone)
-		logrus.Info("dockerd has exited")
+		log.Info("dockerd has exited")
 	}()
 
 	httpServer := &http.Server{
@@ -62,10 +67,10 @@ func main() {
 
 	// Run server
 	go func() {
-		logrus.Infof("Listening on %s", httpServer.Addr)
+		log.Infof("Listening on %s", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 			// it is fine to use Fatal here because it is not main gorutine
-			logrus.Fatalf("HTTP server ListenAndServe: %v", err)
+			log.Fatalf("HTTP server ListenAndServe: %v", err)
 		}
 	}()
 
@@ -77,28 +82,28 @@ func main() {
 	)
 
 	<-signalChan
-	logrus.Info("os.Interrupt - gracefully shutting down...")
+	log.Info("os.Interrupt - gracefully shutting down...")
 
 	go func() {
 		<-signalChan
-		logrus.Fatal("os.Kill - abruptly terminating...")
+		log.Fatal("os.Kill - abruptly terminating...")
 	}()
 
 	gracefullCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 
 	if err := httpServer.Shutdown(gracefullCtx); err != nil {
-		logrus.Infof("shutdown error: %v\n", err)
+		log.Infof("shutdown error: %v\n", err)
 		defer os.Exit(1)
 		return
 	} else {
-		logrus.Infof("gracefully stopped\n")
+		log.Infof("gracefully stopped\n")
 	}
 
 	dockerProc := dockerd.Process
 	if dockerProc != nil {
 		if err := dockerProc.Signal(os.Interrupt); err != nil {
-			logrus.Errorf("error signaling dockerd to interrupt: %v", err)
+			log.Errorf("error signaling dockerd to interrupt: %v", err)
 		} else {
 			<-dockerDone
 		}
@@ -113,17 +118,17 @@ func main() {
 // check that DOCKER_HOST is tcp://<org slug>:2375
 func verifyHost(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.Debug("verifyHost: called")
+		log.Debug("verifyHost: called")
 		host, _, _ := net.SplitHostPort(r.Host)
 		if host == "" {
 			host = r.Host
 		}
-		logrus.Debugf("verifyHost: host=%s orgSlug=%s", host, orgSlug)
+		log.Debugf("verifyHost: host=%s orgSlug=%s", host, orgSlug)
 		if host != orgSlug {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		logrus.Debug("verifyHost: calling next")
+		log.Debug("verifyHost: calling next")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -132,7 +137,7 @@ func verifyHost(next http.Handler) http.Handler {
 // set them on the request context for later use
 func basicAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.Debug("basicAuth: called")
+		log.Debug("basicAuth: called")
 		proxyauth := r.Header.Get("Proxy-Authorization")
 		if proxyauth == "" {
 			w.WriteHeader(http.StatusProxyAuthRequired)
@@ -145,11 +150,11 @@ func basicAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		logrus.Debugf("basicAuth: app=%s", appName)
+		log.Debugf("basicAuth: app=%s", appName)
 
 		ctx := context.WithValue(context.WithValue(r.Context(), appNameKey, appName), accessTokenKey, accessToken)
 
-		logrus.Debug("basicAuth: calling next")
+		log.Debug("basicAuth: calling next")
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -158,16 +163,16 @@ func basicAuth(next http.Handler) http.Handler {
 // retrieve app and validate org is allowed
 func verifyApp(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.Debug("verifyApp: called")
+		log.Debug("verifyApp: called")
 		appName, ok := r.Context().Value(appNameKey).(string)
 		if !ok {
-			logrus.Error("something is seriously wrong, couldn't get appName")
+			log.Error("something is seriously wrong, couldn't get appName")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		accessToken, ok := r.Context().Value(accessTokenKey).(string)
 		if !ok {
-			logrus.Error("something is seriously wrong, couldn't get accessToken")
+			log.Error("something is seriously wrong, couldn't get accessToken")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -187,7 +192,7 @@ func verifyApp(next http.Handler) http.Handler {
 			return
 		}
 
-		logrus.Debug("verifyApp: calling next")
+		log.Debug("verifyApp: calling next")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -195,15 +200,15 @@ func verifyApp(next http.Handler) http.Handler {
 // proxy to docker sock, by hijacking the connection
 func proxy() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.Debug("proxy: called")
-		defer logrus.Debug("proxy: done")
+		log.Debug("proxy: called")
+		defer log.Debug("proxy: done")
 		target := "/var/run/docker.sock"
 
 		var c net.Conn
 
 		cl, err := net.Dial("unix", target)
 		if err != nil {
-			logrus.Errorf("error connecting to backend: %s", err)
+			log.Errorf("error connecting to backend: %s", err)
 			return
 		}
 
@@ -215,7 +220,7 @@ func proxy() http.Handler {
 		}
 		nc, _, err := hj.Hijack()
 		if err != nil {
-			logrus.Infof("hijack error: %v", err)
+			log.Infof("hijack error: %v", err)
 			return
 		}
 		defer nc.Close()
@@ -223,7 +228,7 @@ func proxy() http.Handler {
 
 		err = r.Write(c)
 		if err != nil {
-			logrus.Infof("error copying request to target: %v", err)
+			log.Infof("error copying request to target: %v", err)
 			return
 		}
 
