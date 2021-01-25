@@ -84,26 +84,42 @@ func main() {
 		}
 	}()
 
-	signalChan := make(chan os.Signal, 1)
+	killSig := make(chan os.Signal, 1)
 
 	signal.Notify(
-		signalChan,
+		killSig,
 		syscall.SIGINT,
 	)
 
-	var signaled bool
+	var killSignaled bool
 
-	select {
-	case <-jobDeadline.C:
-		log.Info("Deadline reached without docker build - shutting down...")
-	case <-signalChan:
-		signaled = true
-		log.Info("os.Interrupt - gracefully shutting down...")
-		go func() {
-			<-signalChan
-			log.Fatal("os.Kill - abruptly terminating...")
-		}()
+	keepAliveSig := make(chan os.Signal, 1)
+	signal.Notify(
+		keepAliveSig,
+		syscall.SIGUSR1,
+	)
+
+ALIVE:
+	for {
+		select {
+		case <-keepAliveSig:
+			log.Info("received SIGUSR1, resetting job deadline")
+			jobDeadline.Reset(maxIdleDuration)
+		case <-jobDeadline.C:
+			log.Info("Deadline reached without docker build - shutting down...")
+			break ALIVE
+		case <-killSig:
+			killSignaled = true
+			log.Info("os.Interrupt - gracefully shutting down...")
+			go func() {
+				<-killSig
+				log.Fatal("os.Kill - abruptly terminating...")
+			}()
+			break ALIVE
+		}
 	}
+
+	log.Info("shutting down")
 
 	gracefullCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
@@ -116,8 +132,8 @@ func main() {
 		log.Infof("gracefully stopped\n")
 	}
 
-	if signaled {
-		log.Info("Waiting for builds to finish (reason: signaled)")
+	if killSignaled {
+		log.Info("Waiting for builds to finish (reason: killSignaled)")
 		buildsWg.Wait()
 	}
 
