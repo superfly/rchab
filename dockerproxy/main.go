@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,6 +27,9 @@ const (
 
 var orgSlug = os.Getenv("ALLOW_ORG_SLUG")
 var log = logrus.New()
+var maxIdleDuration = 10 * time.Minute
+var jobDeadline = time.NewTimer(maxIdleDuration)
+var buildsWg sync.WaitGroup
 
 func main() {
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
@@ -60,9 +64,15 @@ func main() {
 	}()
 
 	httpServer := &http.Server{
-		Addr:        ":8080",
-		Handler:     verifyHost(basicAuth(verifyApp(proxy()))),
+		Addr:    ":8080",
+		Handler: verifyHost(basicAuth(verifyApp(proxy()))),
+
+		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
+
+		// kosher timeouts
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	// Run server
@@ -81,13 +91,19 @@ func main() {
 		syscall.SIGINT,
 	)
 
-	<-signalChan
-	log.Info("os.Interrupt - gracefully shutting down...")
+	var signaled bool
 
-	go func() {
-		<-signalChan
-		log.Fatal("os.Kill - abruptly terminating...")
-	}()
+	select {
+	case <-jobDeadline.C:
+		log.Info("Deadline reached without docker build - shutting down...")
+	case <-signalChan:
+		signaled = true
+		log.Info("os.Interrupt - gracefully shutting down...")
+		go func() {
+			<-signalChan
+			log.Fatal("os.Kill - abruptly terminating...")
+		}()
+	}
 
 	gracefullCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
@@ -100,11 +116,17 @@ func main() {
 		log.Infof("gracefully stopped\n")
 	}
 
+	if signaled {
+		log.Info("Waiting for builds to finish (reason: signaled)")
+		buildsWg.Wait()
+	}
+
 	dockerProc := dockerd.Process
 	if dockerProc != nil {
 		if err := dockerProc.Signal(os.Interrupt); err != nil {
 			log.Errorf("error signaling dockerd to interrupt: %v", err)
 		} else {
+			log.Info("Waiting for dockerd to exit")
 			<-dockerDone
 		}
 	}
@@ -202,6 +224,11 @@ func proxy() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Debug("proxy: called")
 		defer log.Debug("proxy: done")
+		defer func() {
+			log.Debug("resetting deadline")
+			jobDeadline.Reset(maxIdleDuration)
+		}()
+
 		target := "/var/run/docker.sock"
 
 		var c net.Conn
@@ -223,6 +250,10 @@ func proxy() http.Handler {
 			log.Infof("hijack error: %v", err)
 			return
 		}
+
+		buildsWg.Add(1)
+		defer buildsWg.Done()
+
 		defer nc.Close()
 		defer c.Close()
 
