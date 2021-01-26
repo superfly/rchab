@@ -206,7 +206,14 @@ func verifyApp(next http.Handler) http.Handler {
 			return
 		}
 
-		if app.Organization.Slug != orgSlug {
+		org, err := fly.FindOrganizationBySlug(orgSlug)
+		if org == nil || err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("Organization not found"))
+			return
+		}
+
+		if app.Organization.ID != org.ID {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte("Wrong organization"))
 			return
