@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/sirupsen/logrus v1.7.0
-	github.com/superfly/flyctl v0.0.158
+	github.com/superfly/flyctl v0.0.163
 )
 
 replace github.com/containerd/containerd => github.com/containerd/containerd v1.3.1-0.20200227195959-4d242818bf55
