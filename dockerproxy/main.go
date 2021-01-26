@@ -65,7 +65,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: verifyHost(basicAuth(verifyApp(proxy()))),
+		Handler: basicAuth(verifyApp(proxy())),
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
@@ -151,24 +151,6 @@ ALIVE:
 	cancel()
 
 	defer os.Exit(0)
-}
-
-// check that DOCKER_HOST is tcp://<org slug>:2375
-func verifyHost(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Debug("verifyHost: called")
-		host, _, _ := net.SplitHostPort(r.Host)
-		if host == "" {
-			host = r.Host
-		}
-		log.Debugf("verifyHost: host=%s orgSlug=%s", host, orgSlug)
-		if host != orgSlug {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		log.Debug("verifyHost: calling next")
-		next.ServeHTTP(w, r)
-	})
 }
 
 // get app name and access token from Proxy-Authorization
