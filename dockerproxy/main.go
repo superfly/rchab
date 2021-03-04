@@ -1,21 +1,34 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/gliderlabs/ssh"
+	"github.com/patrickmn/go-cache"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/superfly/flyctl/api"
+
+	gossh "golang.org/x/crypto/ssh"
 )
 
 type ctxKey string
@@ -30,6 +43,7 @@ var log = logrus.New()
 var maxIdleDuration = 10 * time.Minute
 var jobDeadline = time.NewTimer(maxIdleDuration)
 var buildsWg sync.WaitGroup
+var authCache = cache.New(5*time.Minute, 10*time.Minute)
 
 func main() {
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
@@ -41,6 +55,8 @@ func main() {
 		TimestampFormat: "2006-01-02T15:04:05.000000000Z07:00",
 		FullTimestamp:   true,
 	})
+
+	api.SetBaseURL("https://api.fly.io")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -84,6 +100,36 @@ func main() {
 		}
 	}()
 
+	privateKeyPath := "id_rsa"
+	if dataDir, ok := os.LookupEnv("DATA_DIR"); ok {
+		privateKeyPath = filepath.Join(dataDir, privateKeyPath)
+	}
+
+	pk, err := loadPrivateKey(privateKeyPath)
+	if err != nil {
+		log.Println("Error loading private key, generating new keys", err)
+		pk, err = generatePrivateKey(privateKeyPath)
+		if err != nil {
+			log.Fatalln("Failed to generate private key", err)
+		}
+	}
+
+	signer, err := gossh.NewSignerFromKey(pk)
+
+	sshServer := &ssh.Server{
+		Addr:        ":2222",
+		Handler:     sshHandler,
+		HostSigners: []ssh.Signer{signer},
+	}
+
+	// Run server
+	go func() {
+		log.Infoln("ssh proxy listening on", sshServer.Addr)
+		if err := sshServer.ListenAndServe(); err != nil {
+			log.Fatalf("ssh server ListenAndServe", err)
+		}
+	}()
+
 	killSig := make(chan os.Signal, 1)
 
 	signal.Notify(
@@ -124,7 +170,7 @@ ALIVE:
 	gracefullCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 
-	if err := httpServer.Shutdown(gracefullCtx); err != nil {
+	if err := sshServer.Shutdown(gracefullCtx); err != nil {
 		log.Infof("shutdown error: %v\n", err)
 		defer os.Exit(1)
 		return
@@ -279,14 +325,121 @@ func proxy() http.Handler {
 	})
 }
 
-func parseBasicAuth(auth string) (username, password string, ok bool) {
-	const prefix = "Basic "
-	// Case insensitive prefix match. See Issue 22736.
-	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
+func sshHandler(s ssh.Session) {
+	if !authorizeSSSHUser(s.User()) {
+		writeDockerDaemonResponse(s, http.StatusUnauthorized, "You are unauthorized to use this builder")
 		return
 	}
-	c, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+
+	defer func() {
+		log.Debug("resetting deadline")
+		jobDeadline.Reset(maxIdleDuration)
+	}()
+
+	dockerConn, err := net.Dial("unix", "/var/run/docker.sock")
 	if err != nil {
+		log.Errorln("error connecting to docker daemon:", err)
+		writeDockerDaemonResponse(s, http.StatusInternalServerError, errors.Wrap(err, "Unable to connect to the docker daemon").Error())
+		return
+	}
+
+	buildsWg.Add(1)
+	defer buildsWg.Done()
+
+	defer dockerConn.Close()
+
+	done := make(chan error)
+
+	// client -> docker
+	go func() {
+		sock := dockerConn.(*net.UnixConn)
+		n, err := io.Copy(sock, s)
+		log.Debugf("%s client->docker: copied %d bytes: %v", s.RemoteAddr(), n, err)
+		sock.CloseWrite()
+	}()
+
+	// docker -> client
+	go func() {
+		n, err := io.Copy(s, dockerConn)
+		log.Debugf("%s client<-docker: copied %d bytes: %v", s.RemoteAddr(), n, err)
+		s.CloseWrite()
+
+		done <- err
+	}()
+
+	if err := <-done; err != nil {
+		log.Warnln("Error writing to client", err)
+	}
+
+	log.Debugln(s.RemoteAddr(), "finished session")
+}
+
+func writeDockerDaemonResponse(w io.Writer, status int, message string) error {
+	var body bytes.Buffer
+	json.NewEncoder(&body).Encode(map[string]string{"message": message})
+
+	r := http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(&body),
+		Header: map[string][]string{
+			"Content-Type": {"application/json"},
+		},
+	}
+
+	return r.Write(w)
+}
+
+func authorizeSSSHUser(sessionUsername string) bool {
+	appName, authToken, ok := parseBasicAuth(sessionUsername)
+	if !ok {
+		return false
+	}
+
+	return authorizeRequestWithCache(appName, authToken)
+}
+
+func authorizeRequestWithCache(appName, authToken string) bool {
+	cacheKey := appName + ":" + authToken
+	if val, ok := authCache.Get(cacheKey); ok {
+		if authorized, ok := val.(bool); ok {
+			log.Debugln("authorized from cache")
+			return authorized
+		}
+	}
+
+	authorized := authorizeRequest(appName, authToken)
+	authCache.Set(cacheKey, authorized, 0)
+	log.Debugln("authorized from api")
+	return authorized
+}
+
+func authorizeRequest(appName, authToken string) bool {
+	fly := api.NewClient(authToken, "0.0.0.0.0.0.1")
+	app, err := fly.GetApp(appName)
+	if app == nil || err != nil {
+		log.Warnf("Error fetching app %s:", appName, err)
+		return false
+	}
+
+	org, err := fly.FindOrganizationBySlug(orgSlug)
+	if org == nil || err != nil {
+		log.Warnf("Error fetching org %s:", orgSlug, err)
+		return false
+	}
+
+	if app.Organization.ID != org.ID {
+		log.Warnf("App %s does not belong to org %s", app.Name, org.Slug)
+		return false
+	}
+
+	return true
+}
+
+func parseBasicAuth(auth string) (username, password string, ok bool) {
+	auth = strings.TrimPrefix(strings.TrimPrefix(auth, "Basic "), "basic ")
+	c, err := base64.StdEncoding.DecodeString(auth)
+	if err != nil {
+		log.Warnln("Error decoding auth", err)
 		return
 	}
 	cs := string(c)
@@ -295,4 +448,48 @@ func parseBasicAuth(auth string) (username, password string, ok bool) {
 		return
 	}
 	return cs[:s], cs[s+1:], true
+}
+
+func loadPrivateKey(filename string) (*rsa.PrivateKey, error) {
+	privateKeyBytes, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	block, _ := pem.Decode(privateKeyBytes)
+	if block == nil || block.Type != "RSA PRIVATE KEY" {
+		return nil, fmt.Errorf("Expected \"RSA PRIVATE KEY\" found \"%s\"", block.Type)
+	}
+
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "Errror parsing private key")
+	}
+
+	return privateKey, nil
+}
+
+func generatePrivateKey(filename string) (*rsa.PrivateKey, error) {
+	// generate key
+	privatekey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, errors.Wrap(err, "Cannot generate RSA key")
+	}
+
+	// dump private key to file
+	var privateKeyBytes []byte = x509.MarshalPKCS1PrivateKey(privatekey)
+	privateKeyBlock := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privateKeyBytes,
+	}
+	privatePem, err := os.Create(filename)
+	if err != nil {
+		return nil, errors.Wrap(err, "error creating private.pem")
+	}
+	err = pem.Encode(privatePem, privateKeyBlock)
+	if err != nil {
+		return nil, errors.Wrap(err, "error encoding private pem")
+	}
+
+	return privatekey, nil
 }
