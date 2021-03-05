@@ -3,5 +3,8 @@
     "ipv6": true,
     "fixed-cidr-v6": "fd00::/80",
     "debug": true,
-    "log-level": "debug"
+    "log-level": "debug",
+    "features": {
+        "buildkit": true
+    }
 }
