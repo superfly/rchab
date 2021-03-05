@@ -44,6 +44,7 @@ var maxIdleDuration = 10 * time.Minute
 var jobDeadline = time.NewTimer(maxIdleDuration)
 var buildsWg sync.WaitGroup
 var authCache = cache.New(5*time.Minute, 10*time.Minute)
+var noDockerd = os.Getenv("NO_DOCKERD") == "1" // use local dockerd in dev
 
 func main() {
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
@@ -60,24 +61,10 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Launch `dockerd`
-	dockerd := exec.Command("dockerd", "-p", "/var/run/docker.pid")
-	dockerd.Stdout = os.Stderr
-	dockerd.Stderr = os.Stderr
-
-	if err := dockerd.Start(); err != nil {
-		log.Fatalf("could not start dockerd: %v", err)
+	stopDockerdFn, err := runDockerd()
+	if err != nil {
+		log.Fatalln(err)
 	}
-
-	dockerDone := make(chan struct{})
-
-	go func() {
-		if err := dockerd.Wait(); err != nil {
-			log.Errorf("error waiting on docker: %v", err)
-		}
-		close(dockerDone)
-		log.Info("dockerd has exited")
-	}()
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
@@ -183,20 +170,52 @@ ALIVE:
 		buildsWg.Wait()
 	}
 
-	dockerProc := dockerd.Process
-	if dockerProc != nil {
-		if err := dockerProc.Signal(os.Interrupt); err != nil {
-			log.Errorf("error signaling dockerd to interrupt: %v", err)
-		} else {
-			log.Info("Waiting for dockerd to exit")
-			<-dockerDone
-		}
-	}
+	stopDockerdFn()
 
 	// manually cancel context if not using httpServer.RegisterOnShutdown(cancel)
 	cancel()
 
 	defer os.Exit(0)
+}
+
+func runDockerd() (func(), error) {
+	// noop
+	if noDockerd {
+		return func() {}, nil
+	}
+
+	// Launch `dockerd`
+	dockerd := exec.Command("dockerd", "-p", "/var/run/docker.pid")
+	dockerd.Stdout = os.Stderr
+	dockerd.Stderr = os.Stderr
+
+	if err := dockerd.Start(); err != nil {
+		return nil, errors.Wrap(err, "could not start dockerd")
+	}
+
+	dockerDone := make(chan struct{})
+
+	go func() {
+		if err := dockerd.Wait(); err != nil {
+			log.Errorf("error waiting on docker: %v", err)
+		}
+		close(dockerDone)
+		log.Info("dockerd has exited")
+	}()
+
+	stopFn := func() {
+		dockerProc := dockerd.Process
+		if dockerProc != nil {
+			if err := dockerProc.Signal(os.Interrupt); err != nil {
+				log.Errorf("error signaling dockerd to interrupt: %v", err)
+			} else {
+				log.Info("Waiting for dockerd to exit")
+				<-dockerDone
+			}
+		}
+	}
+
+	return stopFn, nil
 }
 
 // get app name and access token from Proxy-Authorization
