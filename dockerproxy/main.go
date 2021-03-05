@@ -112,8 +112,8 @@ func main() {
 	// Run server
 	go func() {
 		log.Infoln("ssh proxy listening on", sshServer.Addr)
-		if err := sshServer.ListenAndServe(); err != nil {
-			log.Fatalf("ssh server ListenAndServe", err)
+		if err := sshServer.ListenAndServe(); err != ssh.ErrServerClosed {
+			log.Fatalln("ssh server ListenAndServe", err)
 		}
 	}()
 
@@ -158,7 +158,7 @@ ALIVE:
 	defer cancelShutdown()
 
 	if err := sshServer.Shutdown(gracefullCtx); err != nil {
-		log.Infof("shutdown error: %v\n", err)
+		log.Warnf("shutdown error: %v\n", err)
 		defer os.Exit(1)
 		return
 	} else {
