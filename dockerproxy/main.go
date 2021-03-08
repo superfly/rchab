@@ -107,6 +107,9 @@ func main() {
 		Addr:        ":2222",
 		Handler:     sshHandler,
 		HostSigners: []ssh.Signer{signer},
+		PasswordHandler: func(ctx ssh.Context, password string) bool {
+			return authorizeRequestWithCache(ctx.User(), password)
+		},
 	}
 
 	// Run server
@@ -345,11 +348,6 @@ func proxy() http.Handler {
 }
 
 func sshHandler(s ssh.Session) {
-	if !authorizeSSSHUser(s.User()) {
-		writeDockerDaemonResponse(s, http.StatusUnauthorized, "You are unauthorized to use this builder")
-		return
-	}
-
 	defer func() {
 		log.Debug("resetting deadline")
 		jobDeadline.Reset(maxIdleDuration)
@@ -406,15 +404,6 @@ func writeDockerDaemonResponse(w io.Writer, status int, message string) error {
 	}
 
 	return r.Write(w)
-}
-
-func authorizeSSSHUser(sessionUsername string) bool {
-	appName, authToken, ok := parseBasicAuth(sessionUsername)
-	if !ok {
-		return false
-	}
-
-	return authorizeRequestWithCache(appName, authToken)
 }
 
 func authorizeRequestWithCache(appName, authToken string) bool {
