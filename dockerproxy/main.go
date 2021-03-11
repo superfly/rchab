@@ -38,13 +38,22 @@ const (
 	accessTokenKey = ctxKey("access-token")
 )
 
-var orgSlug = os.Getenv("ALLOW_ORG_SLUG")
-var log = logrus.New()
-var maxIdleDuration = 10 * time.Minute
-var jobDeadline = time.NewTimer(maxIdleDuration)
-var buildsWg sync.WaitGroup
-var authCache = cache.New(5*time.Minute, 10*time.Minute)
-var noDockerd = os.Getenv("NO_DOCKERD") == "1" // use local dockerd in dev
+var (
+	orgSlug         = os.Getenv("ALLOW_ORG_SLUG")
+	log             = logrus.New()
+	maxIdleDuration = 10 * time.Minute
+	jobDeadline     = time.NewTimer(maxIdleDuration)
+	buildsWg        sync.WaitGroup
+	authCache       = cache.New(5*time.Minute, 10*time.Minute)
+
+	// dev and testing
+	noDockerd = os.Getenv("NO_DOCKERD") == "1"
+	noAuth    = os.Getenv("NO_AUTH") == "1"
+
+	// build variables
+	gitSha    string
+	buildTime string
+)
 
 func main() {
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
@@ -56,6 +65,8 @@ func main() {
 		TimestampFormat: "2006-01-02T15:04:05.000000000Z07:00",
 		FullTimestamp:   true,
 	})
+
+	log.Infof("Build SHA:%s Time:%s", gitSha, buildTime)
 
 	api.SetBaseURL("https://api.fly.io")
 
@@ -407,6 +418,10 @@ func writeDockerDaemonResponse(w io.Writer, status int, message string) error {
 }
 
 func authorizeRequestWithCache(appName, authToken string) bool {
+	if noAuth {
+		return true
+	}
+
 	cacheKey := appName + ":" + authToken
 	if val, ok := authCache.Get(cacheKey); ok {
 		if authorized, ok := val.(bool); ok {

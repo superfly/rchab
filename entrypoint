@@ -5,7 +5,7 @@ set -e
 if [[ -d "docker-entrypoint.d" ]]
 then
 echo "Running docker-entrypoint.d files"
-/bin/run-parts --verbose docker-entrypoint.d
+/bin/run-parts docker-entrypoint.d
 fi
 
 echo "Running $@"
