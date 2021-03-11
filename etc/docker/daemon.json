@@ -5,7 +5,7 @@
     "debug": true,
     "log-level": "debug",
     "features": {
-        "buildkit": true
+        "buildkit": false
     },
     "mtu": 1300,
     "max-concurrent-downloads": 10,
