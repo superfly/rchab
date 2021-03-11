@@ -207,6 +207,13 @@ func runDockerd() (func(), error) {
 		return nil, errors.Wrap(err, "could not start dockerd")
 	}
 
+	cmd := exec.Command("docker", "buildx", "inspect", "--bootstrap")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Warnln("Error bootstrapping buildx builder:", err)
+	}
+
 	dockerDone := make(chan struct{})
 
 	go func() {
