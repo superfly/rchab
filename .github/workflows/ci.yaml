@@ -28,7 +28,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: flyio/rchab:pre
+          tags: flyio/rchab:latest
           build-args: |
             BUILD_SHA=${{ github.sha }}
       -
