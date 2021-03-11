@@ -30,7 +30,7 @@ jobs:
           push: true
           tags: flyio/rchab:pre
           build-args: |
-            BUILD_SHA=${{ $GITHUB_SHA }}
+            BUILD_SHA=${{ github.sha }}
       -
         name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
