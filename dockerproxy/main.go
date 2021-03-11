@@ -359,6 +359,8 @@ func proxy() http.Handler {
 }
 
 func sshHandler(s ssh.Session) {
+	log.Infoln("starting session for", s.RemoteAddr())
+
 	defer func() {
 		log.Debug("resetting deadline")
 		jobDeadline.Reset(maxIdleDuration)
@@ -370,6 +372,7 @@ func sshHandler(s ssh.Session) {
 		writeDockerDaemonResponse(s, http.StatusInternalServerError, errors.Wrap(err, "Unable to connect to the docker daemon").Error())
 		return
 	}
+	log.Infoln("connected to docker")
 
 	buildsWg.Add(1)
 	defer buildsWg.Done()
@@ -395,11 +398,13 @@ func sshHandler(s ssh.Session) {
 		done <- err
 	}()
 
+	log.Infoln("waiting for session to end", s.RemoteAddr())
+
 	if err := <-done; err != nil {
 		log.Warnln("Error writing to client", err)
 	}
 
-	log.Debugln(s.RemoteAddr(), "finished session")
+	log.Infoln("finished session", s.RemoteAddr())
 }
 
 func writeDockerDaemonResponse(w io.Writer, status int, message string) error {
