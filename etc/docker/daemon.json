@@ -6,5 +6,7 @@
     "log-level": "debug",
     "features": {
         "buildkit": true
-    }
+    },
+    "max-concurrent-downloads": 10,
+    "max-concurrent-uploads": 5
 }
