@@ -214,6 +214,11 @@ func runDockerd() (func(), error) {
 		log.Warnln("Error bootstrapping buildx builder:", err)
 	}
 
+	// This horrible hack attempts to fix timeouts when clients make buildkit requests before the
+	// default builder is fully started. eg "FIXME: Got an API for which error does not match any expected type!!!: context canceled"
+	// delaying by a few seconds seems to help
+	time.Sleep(2 * time.Second)
+
 	dockerDone := make(chan struct{})
 
 	go func() {
