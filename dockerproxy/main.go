@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/superfly/flyctl/api"
+	"github.com/valyala/bytebufferpool"
 )
 
 var (
@@ -62,9 +63,24 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	proxy := &httputil.ReverseProxy{
+		Director: func(r *http.Request) {
+			r.URL.Scheme = "http"
+			r.URL.Host = "localhost"
+			fmt.Println(r.URL)
+		},
+		Transport: &http.Transport{
+			Dial: func(network, addr string) (net.Conn, error) {
+				fmt.Println("dial", network, addr)
+				return net.Dial("unix", "/var/run/docker.sock")
+			},
+		},
+		BufferPool: &bufferPool{ByteBuffer: &bytebufferpool.ByteBuffer{}},
+	}
+
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: handlers.LoggingHandler(log.Writer(), authRequest(resetDeadline(proxy()))),
+		Handler: handlers.LoggingHandler(log.Writer(), authRequest(resetDeadline(proxy))),
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
@@ -200,25 +216,6 @@ func runDockerd() (func(), error) {
 	return stopFn, nil
 }
 
-// proxy to docker sock, by hijacking the connection
-func proxy() http.Handler {
-	proxy := &httputil.ReverseProxy{
-		Director: func(r *http.Request) {
-			r.URL.Scheme = "http"
-			r.URL.Host = "localhost"
-			fmt.Println(r.URL)
-		},
-		Transport: &http.Transport{
-			Dial: func(network, addr string) (net.Conn, error) {
-				fmt.Println("dial", network, addr)
-				return net.Dial("unix", "/var/run/docker.sock")
-			},
-		},
-	}
-
-	return proxy
-}
-
 func authRequest(next http.Handler) http.Handler {
 	if noAuth {
 		return next
@@ -303,4 +300,17 @@ func authorizeRequest(appName, authToken string) bool {
 	}
 
 	return true
+}
+
+// bufferPool is a httputil.BufferPool backed by a bytebufferpool.ByteBuffer.
+type bufferPool struct {
+	*bytebufferpool.ByteBuffer
+}
+
+func (b *bufferPool) Get() []byte {
+	return b.Bytes()
+}
+
+func (b *bufferPool) Put(payload []byte) {
+	b.Set(payload)
 }
