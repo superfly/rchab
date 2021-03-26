@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,19 +22,13 @@ import (
 	"github.com/superfly/flyctl/api"
 )
 
-type ctxKey string
-
-const (
-	appNameKey     = ctxKey("app-name")
-	accessTokenKey = ctxKey("access-token")
-)
-
 var (
 	orgSlug         = os.Getenv("ALLOW_ORG_SLUG")
 	log             = logrus.New()
 	maxIdleDuration = 10 * time.Minute
 	jobDeadline     = time.NewTimer(maxIdleDuration)
 	buildsWg        sync.WaitGroup
+	pendingRequests uint64
 	authCache       = cache.New(5*time.Minute, 10*time.Minute)
 
 	// dev and testing
@@ -103,11 +98,15 @@ ALIVE:
 	for {
 		select {
 		case <-keepAliveSig:
-			log.Info("received SIGUSR1, resetting job deadline")
-			jobDeadline.Reset(maxIdleDuration)
+			log.Info("received SIGUSR1")
+			break
 		case <-jobDeadline.C:
-			log.Info("Deadline reached without docker build - shutting down...")
-			break ALIVE
+			log.Info("Deadline reached without docker build")
+			// job deadline reached AND no pending requests!
+			if atomic.LoadUint64(&pendingRequests) == 0 {
+				break ALIVE
+			}
+			break
 		case <-killSig:
 			killSignaled = true
 			log.Info("os.Interrupt - gracefully shutting down...")
@@ -115,8 +114,12 @@ ALIVE:
 				<-killSig
 				log.Fatal("os.Kill - abruptly terminating...")
 			}()
+			// got a kill signal, so we're kinda done!
 			break ALIVE
 		}
+		log.Debug("liveness loop caused deadline reset")
+		// reset the deadline if we get here
+		jobDeadline.Reset(maxIdleDuration)
 	}
 
 	log.Info("shutting down")
@@ -237,8 +240,11 @@ func authRequest(next http.Handler) http.Handler {
 
 func resetDeadline(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddUint64(&pendingRequests, 1)
 		buildsWg.Add(1)
 		defer buildsWg.Done()
+
+		defer atomic.AddUint64(&pendingRequests, ^uint64(0))
 
 		defer func() {
 			log.Debug("resetting deadline")
@@ -281,13 +287,13 @@ func authorizeRequest(appName, authToken string) bool {
 	fly := api.NewClient(authToken, "0.0.0.0.0.0.1")
 	app, err := fly.GetApp(appName)
 	if app == nil || err != nil {
-		log.Warnf("Error fetching app %s:", appName, err)
+		log.Warnf("Error fetching app %s: %v", appName, err)
 		return false
 	}
 
 	org, err := fly.FindOrganizationBySlug(orgSlug)
 	if org == nil || err != nil {
-		log.Warnf("Error fetching org %s:", orgSlug, err)
+		log.Warnf("Error fetching org %s: %v", orgSlug, err)
 		return false
 	}
 
