@@ -18,7 +18,7 @@ RUN chmod a+x /root/.docker/cli-plugins/docker-buildx
 
 FROM docker:20
 
-RUN apk add bash ip6tables
+RUN apk add bash ip6tables pigz
 
 COPY etc/docker/daemon.json /etc/docker/daemon.json
 
