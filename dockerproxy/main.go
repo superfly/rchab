@@ -80,7 +80,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: handlers.LoggingHandler(log.Writer(), authRequest(resetDeadline(proxy))),
+		Handler: handlers.LoggingHandler(log.Writer(), ping(proxy, authRequest(resetDeadline(proxy)))),
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
@@ -214,6 +214,17 @@ func runDockerd() (func(), error) {
 	}
 
 	return stopFn, nil
+}
+
+func ping(dockerProxy http.Handler, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/_ping" {
+			dockerProxy.ServeHTTP(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func authRequest(next http.Handler) http.Handler {

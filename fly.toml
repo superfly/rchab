@@ -2,30 +2,34 @@
 
 app = "rchab"
 
-kill_signal  = "SIGINT"
+kill_signal = "SIGINT"
 kill_timeout = 5
 
 [[mounts]]
-source      = "data"
+source = "data"
 destination = "/data"
 
 [[services]]
 internal_port = 8080
-protocol      = "tcp"
+protocol = "tcp"
 
-  [services.concurrency]
-  hard_limit = 25
-  soft_limit = 20
+[services.concurrency]
+hard_limit = 25
+soft_limit = 20
 
-  [[services.ports]]
-  handlers = [ "tls" ]
-  port     = "10000"
+[[services.ports]]
+handlers = ["tls"]
+port = "10000"
 
-  [[services.tcp_checks]]
-  interval = 10000
-  timeout  = 2000
+[[services.http_checks]]
+interval = 10000
+grace_period = "5s"
+method = "get"
+path = "/_ping"
+protocol = "http"
+timeout = 2000
 
 [env]
 ALLOW_ORG_SLUG = "fly"
-LOG_LEVEL      = "debug"
-DATA_DIR       = "/data"
+LOG_LEVEL = "debug"
+DATA_DIR = "/data"
