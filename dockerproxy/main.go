@@ -3,10 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -20,7 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/superfly/flyctl/api"
-	"github.com/valyala/bytebufferpool"
 )
 
 var (
@@ -63,24 +61,9 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	proxy := &httputil.ReverseProxy{
-		Director: func(r *http.Request) {
-			r.URL.Scheme = "http"
-			r.URL.Host = "localhost"
-			fmt.Println(r.URL)
-		},
-		Transport: &http.Transport{
-			Dial: func(network, addr string) (net.Conn, error) {
-				fmt.Println("dial", network, addr)
-				return net.Dial("unix", "/var/run/docker.sock")
-			},
-		},
-		BufferPool: &bufferPool{ByteBuffer: &bytebufferpool.ByteBuffer{}},
-	}
-
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: handlers.LoggingHandler(log.Writer(), ping(proxy, authRequest(resetDeadline(proxy)))),
+		Handler: handlers.LoggingHandler(log.Writer(), ping(proxy(), authRequest(resetDeadline(proxy())))),
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
@@ -313,15 +296,50 @@ func authorizeRequest(appName, authToken string) bool {
 	return true
 }
 
-// bufferPool is a httputil.BufferPool backed by a bytebufferpool.ByteBuffer.
-type bufferPool struct {
-	*bytebufferpool.ByteBuffer
-}
+// proxy to docker sock, by hijacking the connection
+func proxy() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Debug("proxy: called")
+		defer log.Debug("proxy: done")
 
-func (b *bufferPool) Get() []byte {
-	return b.Bytes()
-}
+		target := "/var/run/docker.sock"
 
-func (b *bufferPool) Put(payload []byte) {
-	b.Set(payload)
+		var c net.Conn
+
+		cl, err := net.Dial("unix", target)
+		if err != nil {
+			log.Errorf("error connecting to backend: %s", err)
+			return
+		}
+
+		c = cl
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "hijack error", 500)
+			return
+		}
+		nc, _, err := hj.Hijack()
+		if err != nil {
+			log.Infof("hijack error: %v", err)
+			return
+		}
+
+		defer nc.Close()
+		defer c.Close()
+
+		err = r.Write(c)
+		if err != nil {
+			log.Infof("error copying request to target: %v", err)
+			return
+		}
+
+		errc := make(chan error, 2)
+		cp := func(dst io.Writer, src io.Reader) {
+			_, err := io.Copy(dst, src)
+			errc <- err
+		}
+		go cp(c, nc)
+		go cp(nc, c)
+		<-errc
+	})
 }
