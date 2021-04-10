@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -39,6 +40,8 @@ var (
 	buildTime string
 )
 
+const DOCKER_SOCKET_PATH = "/var/run/docker.sock"
+
 func main() {
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
@@ -63,10 +66,14 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: handlers.LoggingHandler(log.Writer(), ping(proxy(), authRequest(resetDeadline(proxy())))),
+		Handler: handlers.LoggingHandler(log.Writer(), ping(authRequest(proxy()))),
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
+
+		// kosher timeouts
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	// Run server
@@ -105,6 +112,7 @@ ALIVE:
 			if atomic.LoadUint64(&pendingRequests) == 0 {
 				break ALIVE
 			}
+			log.Infof("still requests pendings: %d", atomic.LoadUint64(&pendingRequests))
 			break
 		case <-killSig:
 			killSignaled = true
@@ -169,11 +177,6 @@ func runDockerd() (func(), error) {
 		log.Warnln("Error bootstrapping buildx builder:", err)
 	}
 
-	// This horrible hack attempts to fix timeouts when clients make buildkit requests before the
-	// default builder is fully started. eg "FIXME: Got an API for which error does not match any expected type!!!: context canceled"
-	// delaying by a few seconds seems to help
-	time.Sleep(2 * time.Second)
-
 	dockerDone := make(chan struct{})
 
 	go func() {
@@ -183,6 +186,42 @@ func runDockerd() (func(), error) {
 		close(dockerDone)
 		log.Info("dockerd has exited")
 	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client := http.Client{
+		Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", DOCKER_SOCKET_PATH)
+			},
+		},
+	}
+
+OUTER:
+	for {
+		log.Debug("Checking dockerd healthyness")
+		errCh := make(chan error, 1)
+
+		go func() {
+			_, err := client.Head("http://localhost/_ping")
+			errCh <- err
+		}()
+
+		select {
+		case err := <-errCh:
+			if err != nil {
+				log.Debugf("got error pinging dockerd: %v", err)
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			break OUTER
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout elapsed while trying to check dockerd healthiness")
+		case <-dockerDone:
+			return nil, fmt.Errorf("dockerd exited before we could ascertain its healthyness")
+		}
+	}
 
 	stopFn := func() {
 		dockerProc := dockerd.Process
@@ -199,14 +238,35 @@ func runDockerd() (func(), error) {
 	return stopFn, nil
 }
 
-func ping(dockerProxy http.Handler, next http.Handler) http.Handler {
+func ping(next http.Handler) http.Handler {
+	// safeDockerClient := http.Client{
+	// 	Transport: &http.Transport{
+	// 		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+	// 			return net.Dial("unix", DOCKER_SOCKET_PATH)
+	// 		},
+	// 	},
+	// }
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/_ping" {
-			dockerProxy.ServeHTTP(w, r)
+		if r.Method == http.MethodHead && r.URL.Path == "/__status" {
+			log.Debug("healthcheck endpoint")
+			// res, err := safeDockerClient.Head("http://localhost/_ping")
+			// if err != nil {
+			// 	log.Errorf("error pinging docker during healthcheck: %v", err)
+			// 	w.WriteHeader(500)
+			// 	return
+			// }
+			// for k, v := range res.Header {
+			// 	for _, v := range v {
+			// 		w.Header().Add(k, v)
+			// 	}
+			// }
+			// w.WriteHeader(res.StatusCode)
+			w.WriteHeader(200)
 			return
 		}
 
 		next.ServeHTTP(w, r)
+		log.Debug("call to next ServeHTTP ended")
 	})
 }
 
@@ -224,23 +284,6 @@ func authRequest(next http.Handler) http.Handler {
 			}
 			return
 		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func resetDeadline(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddUint64(&pendingRequests, 1)
-		buildsWg.Add(1)
-		defer buildsWg.Done()
-
-		defer atomic.AddUint64(&pendingRequests, ^uint64(0))
-
-		defer func() {
-			log.Debug("resetting deadline")
-			jobDeadline.Reset(maxIdleDuration)
-		}()
 
 		next.ServeHTTP(w, r)
 	})
@@ -300,46 +343,57 @@ func authorizeRequest(appName, authToken string) bool {
 func proxy() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Debug("proxy: called")
+		atomic.AddUint64(&pendingRequests, 1)
+		buildsWg.Add(1)
+		defer buildsWg.Done()
+
+		defer func() {
+			atomic.AddUint64(&pendingRequests, ^uint64(0))
+		}()
+
+		defer func() {
+			log.Debug("resetting deadline")
+			jobDeadline.Reset(maxIdleDuration)
+		}()
 		defer log.Debug("proxy: done")
 
-		target := "/var/run/docker.sock"
-
-		var c net.Conn
-
-		cl, err := net.Dial("unix", target)
-		if err != nil {
-			log.Errorf("error connecting to backend: %s", err)
-			return
+		if err := proxyDocker(w, r); err != nil {
+			log.Error(err)
 		}
-
-		c = cl
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			http.Error(w, "hijack error", 500)
-			return
-		}
-		nc, _, err := hj.Hijack()
-		if err != nil {
-			log.Infof("hijack error: %v", err)
-			return
-		}
-
-		defer nc.Close()
-		defer c.Close()
-
-		err = r.Write(c)
-		if err != nil {
-			log.Infof("error copying request to target: %v", err)
-			return
-		}
-
-		errc := make(chan error, 2)
-		cp := func(dst io.Writer, src io.Reader) {
-			_, err := io.Copy(dst, src)
-			errc <- err
-		}
-		go cp(c, nc)
-		go cp(nc, c)
-		<-errc
 	})
+}
+
+func proxyDocker(w http.ResponseWriter, r *http.Request) error {
+	c, err := net.Dial("unix", DOCKER_SOCKET_PATH)
+	if err != nil {
+		return fmt.Errorf("error connecting to backend: %s", err)
+	}
+
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "hijack error", 500)
+		return fmt.Errorf("could not hijack connection")
+	}
+	nc, _, err := hj.Hijack()
+	if err != nil {
+		log.Infof("hijack error: %v", err)
+		return fmt.Errorf("error hikacking connection: %v", err)
+	}
+
+	defer nc.Close()
+	defer c.Close()
+
+	err = r.Write(c)
+	if err != nil {
+		return fmt.Errorf("error copying request to target: %v", err)
+	}
+
+	errc := make(chan error, 2)
+	cp := func(dst io.Writer, src io.Reader) {
+		_, err := io.Copy(dst, src)
+		errc <- err
+	}
+	go cp(c, nc)
+	go cp(nc, c)
+	return <-errc
 }
