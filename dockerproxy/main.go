@@ -66,7 +66,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: handlers.LoggingHandler(log.Writer(), ping(authRequest(proxy()))),
+		Handler: handlers.LoggingHandler(log.Writer(), authRequest(proxy())),
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
@@ -236,38 +236,6 @@ OUTER:
 	}
 
 	return stopFn, nil
-}
-
-func ping(next http.Handler) http.Handler {
-	// safeDockerClient := http.Client{
-	// 	Transport: &http.Transport{
-	// 		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-	// 			return net.Dial("unix", DOCKER_SOCKET_PATH)
-	// 		},
-	// 	},
-	// }
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead && r.URL.Path == "/__status" {
-			log.Debug("healthcheck endpoint")
-			// res, err := safeDockerClient.Head("http://localhost/_ping")
-			// if err != nil {
-			// 	log.Errorf("error pinging docker during healthcheck: %v", err)
-			// 	w.WriteHeader(500)
-			// 	return
-			// }
-			// for k, v := range res.Header {
-			// 	for _, v := range v {
-			// 		w.Header().Add(k, v)
-			// 	}
-			// }
-			// w.WriteHeader(res.StatusCode)
-			w.WriteHeader(200)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-		log.Debug("call to next ServeHTTP ended")
-	})
 }
 
 func authRequest(next http.Handler) http.Handler {

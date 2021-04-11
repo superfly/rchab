@@ -21,13 +21,6 @@ soft_limit = 20
 handlers = ["tls"]
 port = 10000
 
-# [[services.http_checks]]
-# interval = 10000
-# grace_period = "2s"
-# method = "head"
-# path = "/__status"
-# protocol = "http"
-# timeout = 2000
 [[services.tcp_checks]]
 interval = 10000
 timeout = 2000
