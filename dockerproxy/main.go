@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -20,7 +20,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/superfly/flyctl/api"
-	"github.com/valyala/bytebufferpool"
 )
 
 var (
@@ -40,6 +39,8 @@ var (
 	gitSha    string
 	buildTime string
 )
+
+const DOCKER_SOCKET_PATH = "/var/run/docker.sock"
 
 func main() {
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
@@ -63,27 +64,16 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	proxy := &httputil.ReverseProxy{
-		Director: func(r *http.Request) {
-			r.URL.Scheme = "http"
-			r.URL.Host = "localhost"
-			fmt.Println(r.URL)
-		},
-		Transport: &http.Transport{
-			Dial: func(network, addr string) (net.Conn, error) {
-				fmt.Println("dial", network, addr)
-				return net.Dial("unix", "/var/run/docker.sock")
-			},
-		},
-		BufferPool: &bufferPool{ByteBuffer: &bytebufferpool.ByteBuffer{}},
-	}
-
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: handlers.LoggingHandler(log.Writer(), ping(proxy, authRequest(resetDeadline(proxy)))),
+		Handler: handlers.LoggingHandler(log.Writer(), authRequest(proxy())),
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
+
+		// kosher timeouts
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	// Run server
@@ -122,6 +112,7 @@ ALIVE:
 			if atomic.LoadUint64(&pendingRequests) == 0 {
 				break ALIVE
 			}
+			log.Infof("still requests pendings: %d", atomic.LoadUint64(&pendingRequests))
 			break
 		case <-killSig:
 			killSignaled = true
@@ -186,11 +177,6 @@ func runDockerd() (func(), error) {
 		log.Warnln("Error bootstrapping buildx builder:", err)
 	}
 
-	// This horrible hack attempts to fix timeouts when clients make buildkit requests before the
-	// default builder is fully started. eg "FIXME: Got an API for which error does not match any expected type!!!: context canceled"
-	// delaying by a few seconds seems to help
-	time.Sleep(2 * time.Second)
-
 	dockerDone := make(chan struct{})
 
 	go func() {
@@ -200,6 +186,42 @@ func runDockerd() (func(), error) {
 		close(dockerDone)
 		log.Info("dockerd has exited")
 	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client := http.Client{
+		Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", DOCKER_SOCKET_PATH)
+			},
+		},
+	}
+
+OUTER:
+	for {
+		log.Debug("Checking dockerd healthyness")
+		errCh := make(chan error, 1)
+
+		go func() {
+			_, err := client.Head("http://localhost/_ping")
+			errCh <- err
+		}()
+
+		select {
+		case err := <-errCh:
+			if err != nil {
+				log.Debugf("got error pinging dockerd: %v", err)
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			break OUTER
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout elapsed while trying to check dockerd healthiness")
+		case <-dockerDone:
+			return nil, fmt.Errorf("dockerd exited before we could ascertain its healthyness")
+		}
+	}
 
 	stopFn := func() {
 		dockerProc := dockerd.Process
@@ -216,17 +238,6 @@ func runDockerd() (func(), error) {
 	return stopFn, nil
 }
 
-func ping(dockerProxy http.Handler, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/_ping" {
-			dockerProxy.ServeHTTP(w, r)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 func authRequest(next http.Handler) http.Handler {
 	if noAuth {
 		return next
@@ -241,23 +252,6 @@ func authRequest(next http.Handler) http.Handler {
 			}
 			return
 		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func resetDeadline(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddUint64(&pendingRequests, 1)
-		buildsWg.Add(1)
-		defer buildsWg.Done()
-
-		defer atomic.AddUint64(&pendingRequests, ^uint64(0))
-
-		defer func() {
-			log.Debug("resetting deadline")
-			jobDeadline.Reset(maxIdleDuration)
-		}()
 
 		next.ServeHTTP(w, r)
 	})
@@ -313,15 +307,61 @@ func authorizeRequest(appName, authToken string) bool {
 	return true
 }
 
-// bufferPool is a httputil.BufferPool backed by a bytebufferpool.ByteBuffer.
-type bufferPool struct {
-	*bytebufferpool.ByteBuffer
+// proxy to docker sock, by hijacking the connection
+func proxy() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Debug("proxy: called")
+		atomic.AddUint64(&pendingRequests, 1)
+		buildsWg.Add(1)
+		defer buildsWg.Done()
+
+		defer func() {
+			atomic.AddUint64(&pendingRequests, ^uint64(0))
+		}()
+
+		defer func() {
+			log.Debug("resetting deadline")
+			jobDeadline.Reset(maxIdleDuration)
+		}()
+		defer log.Debug("proxy: done")
+
+		if err := proxyDocker(w, r); err != nil {
+			log.Error(err)
+		}
+	})
 }
 
-func (b *bufferPool) Get() []byte {
-	return b.Bytes()
-}
+func proxyDocker(w http.ResponseWriter, r *http.Request) error {
+	c, err := net.Dial("unix", DOCKER_SOCKET_PATH)
+	if err != nil {
+		return fmt.Errorf("error connecting to backend: %s", err)
+	}
 
-func (b *bufferPool) Put(payload []byte) {
-	b.Set(payload)
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "hijack error", 500)
+		return fmt.Errorf("could not hijack connection")
+	}
+	nc, _, err := hj.Hijack()
+	if err != nil {
+		log.Infof("hijack error: %v", err)
+		return fmt.Errorf("error hikacking connection: %v", err)
+	}
+
+	defer nc.Close()
+	defer c.Close()
+
+	err = r.Write(c)
+	if err != nil {
+		return fmt.Errorf("error copying request to target: %v", err)
+	}
+
+	errc := make(chan error, 2)
+	cp := func(dst io.Writer, src io.Reader) {
+		_, err := io.Copy(dst, src)
+		errc <- err
+	}
+	go cp(c, nc)
+	go cp(nc, c)
+	return <-errc
 }

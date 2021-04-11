@@ -19,14 +19,10 @@ soft_limit = 20
 
 [[services.ports]]
 handlers = ["tls"]
-port = "10000"
+port = 10000
 
-[[services.http_checks]]
+[[services.tcp_checks]]
 interval = 10000
-grace_period = "5s"
-method = "get"
-path = "/_ping"
-protocol = "http"
 timeout = 2000
 
 [env]
