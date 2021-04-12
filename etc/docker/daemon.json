@@ -1,7 +1,7 @@
 {
     "data-root": "/data/docker",
     "ipv6": true,
-    "fixed-cidr-v6": "fd00::/80",
+    "fixed-cidr-v6": "2001:db8:1::/64",
     "debug": true,
     "log-level": "debug",
     "features": {
