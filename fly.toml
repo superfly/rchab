@@ -29,3 +29,7 @@ timeout = 2000
 ALLOW_ORG_SLUG = "fly"
 LOG_LEVEL = "debug"
 DATA_DIR = "/data"
+
+[metrics]
+port = 9323
+path = "/metrics"
