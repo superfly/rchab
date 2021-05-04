@@ -21,10 +21,6 @@ soft_limit = 20
 handlers = ["tls"]
 port = 10000
 
-[[services.tcp_checks]]
-interval = 10000
-timeout = 2000
-
 [env]
 ALLOW_ORG_SLUG = "fly"
 LOG_LEVEL = "debug"
