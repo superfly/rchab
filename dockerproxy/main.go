@@ -40,6 +40,13 @@ var (
 	buildTime string
 )
 
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		buffer := make([]byte, 1<<20)
+		return &buffer
+	},
+}
+
 const DOCKER_SOCKET_PATH = "/var/run/docker.sock"
 
 func main() {
@@ -357,11 +364,59 @@ func proxyDocker(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	errc := make(chan error, 2)
-	cp := func(dst io.Writer, src io.Reader) {
-		_, err := io.Copy(dst, src)
+	cp := func(dst io.Writer, src io.Reader, label string) {
+		_, err := copyWithBuffer(dst, src)
+		if err != nil {
+			log.Errorf("error copying %s: %v", label, err)
+		}
 		errc <- err
 	}
-	go cp(c, nc)
-	go cp(nc, c)
+	go cp(c, nc, "client->docker")
+	go cp(nc, c, "docker->client")
 	return <-errc
+}
+
+// copyWithBuffer is very similar to  io.CopyBuffer https://golang.org/pkg/io/#CopyBuffer
+// but instead of using Read to read from the src, we use ReadAtLeast to make sure we have
+// a full buffer before we do a write operation to dst to reduce overheads associated
+// with the write operations of small buffers.
+// Taken from https://github.com/amrmahdi/containerd/blob/b81917ee72a8e705127006084619b5c0ef76aa8e/content/helpers.go#L236
+func copyWithBuffer(dst io.Writer, src io.Reader) (written int64, err error) {
+	// If the reader has a WriteTo method, use it to do the copy.
+	// Avoids an allocation and a copy.
+	if wt, ok := src.(io.WriterTo); ok {
+		return wt.WriteTo(dst)
+	}
+	// Similarly, if the writer has a ReadFrom method, use it to do the copy.
+	if rt, ok := dst.(io.ReaderFrom); ok {
+		return rt.ReadFrom(src)
+	}
+	bufRef := bufPool.Get().(*[]byte)
+	defer bufPool.Put(bufRef)
+	buf := *bufRef
+	for {
+		nr, er := io.ReadAtLeast(src, buf, len(buf))
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil { // If an EOF happens after reading fewer than the requested bytes,
+			// ReadAtLeast returns ErrUnexpectedEOF.
+			if er != io.EOF && er != io.ErrUnexpectedEOF {
+				err = er
+			}
+			break
+		}
+	}
+	return
 }
