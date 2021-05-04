@@ -28,6 +28,8 @@ COPY --from=build /app/dockerproxy /dockerproxy
 COPY ./entrypoint ./entrypoint
 COPY ./docker-entrypoint.d/* ./docker-entrypoint.d/
 
+ENV DOCKER_TMPDIR=/data/docker/tmp
+
 ENTRYPOINT ["./entrypoint"]
 
 CMD ["/dockerproxy"]
