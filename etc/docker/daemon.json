@@ -13,6 +13,10 @@
     "features": {
         "buildkit": false
     },
+    "hosts": [
+        "unix:///var/run/docker.sock",
+        "tcp://0.0.0.0:2375"
+    ],
     "mtu": 1400,
     "max-concurrent-downloads": 10,
     "max-concurrent-uploads": 5,
