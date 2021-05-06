@@ -15,7 +15,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
 	"github.com/gorilla/handlers"
+	"github.com/mitchellh/go-ps"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -66,10 +70,13 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	stopDockerdFn, err := runDockerd()
+	stopDockerdFn, client, err := runDockerd()
 	if err != nil {
 		log.Fatalln(err)
 	}
+	client.Ping(ctx)
+	keepAlive := make(chan struct{})
+	go watchDocker(ctx, client, keepAlive)
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
@@ -110,6 +117,9 @@ func main() {
 ALIVE:
 	for {
 		select {
+		case <-keepAlive:
+			log.Info("containers active, keepalive")
+			break
 		case <-keepAliveSig:
 			log.Info("received SIGUSR1")
 			break
@@ -162,10 +172,14 @@ ALIVE:
 	defer os.Exit(0)
 }
 
-func runDockerd() (func(), error) {
+func runDockerd() (func(), *client.Client, error) {
 	// noop
 	if noDockerd {
-		return func() {}, nil
+		client, err := client.NewClientWithOpts(client.FromEnv)
+		if err != nil {
+			return nil, nil, err
+		}
+		return func() {}, client, nil
 	}
 
 	// Launch `dockerd`
@@ -174,7 +188,7 @@ func runDockerd() (func(), error) {
 	dockerd.Stderr = os.Stderr
 
 	if err := dockerd.Start(); err != nil {
-		return nil, errors.Wrap(err, "could not start dockerd")
+		return nil, nil, errors.Wrap(err, "could not start dockerd")
 	}
 
 	cmd := exec.Command("docker", "buildx", "inspect", "--bootstrap")
@@ -197,12 +211,9 @@ func runDockerd() (func(), error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	client := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", DOCKER_SOCKET_PATH)
-			},
-		},
+	client, err := client.NewEnvClient()
+	if err != nil {
+		return nil, nil, err
 	}
 
 OUTER:
@@ -211,7 +222,7 @@ OUTER:
 		errCh := make(chan error, 1)
 
 		go func() {
-			_, err := client.Head("http://localhost/_ping")
+			_, err := client.Ping(ctx)
 			errCh <- err
 		}()
 
@@ -224,9 +235,9 @@ OUTER:
 			}
 			break OUTER
 		case <-ctx.Done():
-			return nil, fmt.Errorf("timeout elapsed while trying to check dockerd healthiness")
+			return nil, nil, fmt.Errorf("timeout elapsed while trying to check dockerd healthiness")
 		case <-dockerDone:
-			return nil, fmt.Errorf("dockerd exited before we could ascertain its healthyness")
+			return nil, nil, fmt.Errorf("dockerd exited before we could ascertain its healthyness")
 		}
 	}
 
@@ -242,7 +253,59 @@ OUTER:
 		}
 	}
 
-	return stopFn, nil
+	return stopFn, client, nil
+}
+
+func watchDocker(ctx context.Context, client *client.Client, keepaliveCh chan<- struct{}) {
+	timer := time.NewTimer(1 * time.Second)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			log.Debug("checking docker activity")
+			if isDockerActive(ctx, client) || isBuildkitActive() {
+				keepaliveCh <- struct{}{}
+			}
+			timer.Reset(1 * time.Second)
+		case <-ctx.Done():
+			fmt.Println("context done, stop watching docker")
+			return
+		}
+	}
+}
+
+// buildkit containers don't show up in dockerd, since we're not running
+// buildkitd just look for runc processes which are spawned by buildkit builders
+func isBuildkitActive() bool {
+	processes, err := ps.Processes()
+	if err != nil {
+		panic(err)
+	}
+
+	for _, p := range processes {
+		if p.Executable() == "runc" {
+			log.Debugf("found runc process")
+			return true
+		}
+	}
+
+	return false
+}
+
+func isDockerActive(ctx context.Context, client *client.Client) bool {
+	containers, err := client.ContainerList(ctx, types.ContainerListOptions{Filters: filters.NewArgs(filters.Arg("status", "running"))})
+	if err != nil {
+		log.Warnln("error checking docker containers")
+		return false
+	}
+
+	if len(containers) > 0 {
+		fmt.Println("WE HAVE ", len(containers), " RUNNING CONTAINERS")
+		return true
+	}
+
+	return false
 }
 
 func authRequest(next http.Handler) http.Handler {
