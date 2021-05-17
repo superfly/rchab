@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/gorilla/handlers"
+	"github.com/minio/minio/pkg/disk"
 	"github.com/mitchellh/go-ps"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
@@ -253,11 +254,29 @@ OUTER:
 		}
 	}
 
+	di, err := disk.GetInfo("/data")
+	if err != nil {
+		log.Debugf("could not get disk usage")
+	} else {
+		percentage := (float64(di.Total-di.Free) / float64(di.Total))
+		log.Debugf("disk space used: %0.2f%%", percentage*100)
+		if percentage > 0.9 {
+			log.Info("Not enough disk space, pruning images.")
+			report, err := client.ImagesPrune(context.Background(), filters.NewArgs())
+			if err != nil {
+				log.Errorf("error pruning images: %v", err)
+			} else {
+				log.Infof("Pruned %d bytes", report.SpaceReclaimed)
+			}
+		}
+
+	}
+
 	return stopFn, client, nil
 }
 
 func watchDocker(ctx context.Context, client *client.Client, keepaliveCh chan<- struct{}) {
-	timer := time.NewTimer(1 * time.Second)
+	timer := time.NewTimer(1 * time.Minute)
 	defer timer.Stop()
 
 	for {
@@ -267,7 +286,8 @@ func watchDocker(ctx context.Context, client *client.Client, keepaliveCh chan<- 
 			if isDockerActive(ctx, client) || isBuildkitActive() {
 				keepaliveCh <- struct{}{}
 			}
-			timer.Reset(1 * time.Second)
+			timer.Reset(1 * time.Minute)
+			break // probably not required
 		case <-ctx.Done():
 			fmt.Println("context done, stop watching docker")
 			return
