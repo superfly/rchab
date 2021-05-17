@@ -276,7 +276,7 @@ OUTER:
 }
 
 func watchDocker(ctx context.Context, client *client.Client, keepaliveCh chan<- struct{}) {
-	timer := time.NewTimer(1 * time.Minute)
+	timer := time.NewTimer(1 * time.Second)
 	defer timer.Stop()
 
 	for {
@@ -286,7 +286,7 @@ func watchDocker(ctx context.Context, client *client.Client, keepaliveCh chan<- 
 			if isDockerActive(ctx, client) || isBuildkitActive() {
 				keepaliveCh <- struct{}{}
 			}
-			timer.Reset(1 * time.Minute)
+			timer.Reset(1 * time.Second)
 			break // probably not required
 		case <-ctx.Done():
 			fmt.Println("context done, stop watching docker")
