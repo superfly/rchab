@@ -262,11 +262,19 @@ OUTER:
 		log.Debugf("disk space used: %0.2f%%", percentage*100)
 		if percentage > 0.9 {
 			log.Info("Not enough disk space, pruning images.")
-			report, err := client.ImagesPrune(context.Background(), filters.NewArgs())
+			imgReport, err := client.ImagesPrune(context.Background(), filters.NewArgs())
 			if err != nil {
 				log.Errorf("error pruning images: %v", err)
 			} else {
-				log.Infof("Pruned %d bytes", report.SpaceReclaimed)
+				log.Infof("Pruned %d bytes of images", imgReport.SpaceReclaimed)
+			}
+
+			volReport, err := client.VolumesPrune(context.Background(), filters.NewArgs())
+
+			if err != nil {
+				log.Errorf("error pruning volumes: %v", err)
+			} else {
+				log.Infof("Pruned %d bytes of volumes", volReport.SpaceReclaimed)
 			}
 		}
 
