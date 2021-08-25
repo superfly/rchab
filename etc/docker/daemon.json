@@ -21,5 +21,7 @@
     "max-concurrent-downloads": 10,
     "max-concurrent-uploads": 5,
     "metrics-addr": "0.0.0.0:9323",
-    "tls": false
+
+    "tls": false,
+    "tlsverify": false
 }
