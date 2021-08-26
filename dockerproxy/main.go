@@ -183,6 +183,9 @@ func runDockerd() (func(), *client.Client, error) {
 		return func() {}, client, nil
 	}
 
+	// just to be sure, because machines now reuse snapshots
+	os.RemoveAll("/var/run/docker.pid")
+
 	// Launch `dockerd`
 	dockerd := exec.Command("dockerd", "-p", "/var/run/docker.pid")
 	dockerd.Stdout = os.Stderr
