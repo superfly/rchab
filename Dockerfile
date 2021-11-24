@@ -1,4 +1,4 @@
-FROM golang:1.16 as build
+FROM golang:1.17 as build
 
 ARG BUILD_SHA
 
@@ -16,7 +16,7 @@ RUN mkdir -p /root/.docker/cli-plugins
 RUN curl -L https://github.com/docker/buildx/releases/download/v0.5.1/buildx-v0.5.1.linux-amd64 > /root/.docker/cli-plugins/docker-buildx
 RUN chmod a+x /root/.docker/cli-plugins/docker-buildx
 
-FROM docker:20
+FROM docker:20.10.11-alpine3.14
 
 RUN apk add bash ip6tables pigz sysstat procps lsof
 
@@ -27,6 +27,8 @@ COPY --from=build /app/dockerproxy /dockerproxy
 
 COPY ./entrypoint ./entrypoint
 COPY ./docker-entrypoint.d/* ./docker-entrypoint.d/
+
+COPY bin/dockerd /usr/local/bin/dockerd
 
 ENV DOCKER_TMPDIR=/data/docker/tmp
 

@@ -20,6 +20,7 @@
     "mtu": 1400,
     "max-concurrent-downloads": 10,
     "max-concurrent-uploads": 5,
+    "compression-threads": 4,
     "metrics-addr": "0.0.0.0:9323",
     "tls": false
 }
