@@ -14,7 +14,8 @@ RUN apk add bash ip6tables pigz sysstat procps lsof util-linux-misc xz curl sudo
 
 RUN curl -L https://github.com/DarthSim/hivemind/releases/download/v1.0.6/hivemind-v1.0.6-linux-amd64.gz -o hivemind.gz \
   && gunzip hivemind.gz \
-  && mv hivemind /usr/local/bin
+  && mv hivemind /usr/local/bin \
+  && chmod 755 /usr/local/bin/hivemind
 
 # Required for Nix to function as root
 ENV USER root
@@ -41,4 +42,4 @@ ENV DOCKER_TMPDIR=/data/docker/tmp
 
 ENTRYPOINT ["./entrypoint"]
 
-CMD ["hivemind", "Procfile"]
+CMD ["/usr/local/bin/hivemind", "./Procfile"]
