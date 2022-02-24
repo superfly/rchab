@@ -20,7 +20,7 @@ if [ -z "$(ls -A $NIX_DIR)" ]; then
   rsync -av /nix/* $NIX_DIR
 fi
 
-if [ -z "$(ls -A $NIX_DIR)" ]; then
+if [ -z "$(ls -A $ROOT_HOME_DIR)" ]; then
   echo "The persistent root home directory is empty, so bootstrap it from the image."
   rsync -av /root/* $ROOT_HOME_DIR
 fi
