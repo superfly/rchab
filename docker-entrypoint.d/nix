@@ -17,12 +17,12 @@ mkdir -p $NIX_DIR
 
 if [ -z "$(ls -A $NIX_DIR)" ]; then
   echo "The persistent nix store is empty, so bootstrap it from the image."
-  rsync -av /nix/* $NIX_DIR
+  rsync -av /nix/ $NIX_DIR
 fi
 
 if [ -z "$(ls -A $ROOT_HOME_DIR)" ]; then
   echo "The persistent root home directory is empty, so bootstrap it from the image."
-  rsync -av /root/* $ROOT_HOME_DIR
+  rsync -av /root/ $ROOT_HOME_DIR
 fi
 
 echo "Bind-mounting persistent nix store to /nix."
