@@ -25,6 +25,6 @@
     "metrics-addr": "0.0.0.0:9323",
     "tls": false,
     "registry-mirrors": [
-        "https://hub-mirror.registry.fly.io"
+        "https://docker-hub-mirror.fly.io"
     ]
 }
