@@ -30,7 +30,7 @@ RUN ln -s /root/.nix-profile/etc/profile.d/nix.sh /etc/profile.d/nix.sh
 COPY etc/docker/daemon.json /etc/docker/daemon.json
 
 COPY --from=build /app/dockerproxy /dockerproxy
-COPY --from=docker/buildx-bin:v0.7 /buildx /usr/libexec/docker/cli-plugins/docker-buildx
+COPY --from=docker/buildx-bin:0.8.1 /buildx /usr/libexec/docker/cli-plugins/docker-buildx
 
 COPY ./entrypoint ./entrypoint
 COPY ./docker-entrypoint.d/* ./docker-entrypoint.d/
