@@ -248,6 +248,9 @@ OUTER:
 	stopFn := func() {
 		dockerProc := dockerd.Process
 		if dockerProc != nil {
+			// prune before shutting down if necessary
+			tryPrune(context.Background(), client)
+
 			if err := dockerProc.Signal(os.Interrupt); err != nil {
 				log.Errorf("error signaling dockerd to interrupt: %v", err)
 			} else {
@@ -257,6 +260,14 @@ OUTER:
 		}
 	}
 
+	// prune before starting up if necessary
+	tryPrune(context.Background(), client)
+
+	return stopFn, client, nil
+}
+
+// tryPrune frees disk space if usage is >= 90%
+func tryPrune(ctx context.Context, client *client.Client) {
 	di, err := disk.GetInfo("/data")
 	if err != nil {
 		log.Debugf("could not get disk usage")
@@ -264,26 +275,38 @@ OUTER:
 		percentage := (float64(di.Total-di.Free) / float64(di.Total))
 		log.Debugf("disk space used: %0.2f%%", percentage*100)
 		if percentage > 0.9 {
-			log.Info("Not enough disk space, pruning images.")
-			imgReport, err := client.ImagesPrune(context.Background(), filters.NewArgs())
-			if err != nil {
-				log.Errorf("error pruning images: %v", err)
-			} else {
-				log.Infof("Pruned %d bytes of images", imgReport.SpaceReclaimed)
-			}
+			log.Info("Not enough disk space, pruning")
 
-			volReport, err := client.VolumesPrune(context.Background(), filters.NewArgs())
-
-			if err != nil {
-				log.Errorf("error pruning volumes: %v", err)
-			} else {
-				log.Infof("Pruned %d bytes of volumes", volReport.SpaceReclaimed)
-			}
+			prune(context.Background(), client)
 		}
+	}
+}
 
+func prune(ctx context.Context, client *client.Client) {
+	imgReport, err := client.ImagesPrune(ctx, filters.NewArgs())
+	if err != nil {
+		log.Errorf("error pruning images: %v", err)
+	} else {
+		log.Infof("Pruned %d bytes of images", imgReport.SpaceReclaimed)
 	}
 
-	return stopFn, client, nil
+	volReport, err := client.VolumesPrune(ctx, filters.NewArgs())
+	if err != nil {
+		log.Errorf("error pruning volumes: %v", err)
+	} else {
+		log.Infof("Pruned %d bytes of volumes", volReport.SpaceReclaimed)
+	}
+
+	bcReport, err := client.BuildCachePrune(ctx, types.BuildCachePruneOptions{
+		All:     true,
+		Filters: filters.NewArgs(filters.Arg("until", "12h")),
+	})
+
+	if err != nil {
+		log.Errorf("error pruning build cache: %v", err)
+	} else {
+		log.Infof("Pruned %d bytes from build cache", bcReport.SpaceReclaimed)
+	}
 }
 
 func watchDocker(ctx context.Context, client *client.Client, keepaliveCh chan<- struct{}) {
