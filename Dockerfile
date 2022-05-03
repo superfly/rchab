@@ -10,22 +10,7 @@ RUN GOOS=linux GARCH=amd64 CGO_ENABLED=0 go build -o dockerproxy -ldflags "-X ma
 
 FROM docker:20.10.12-alpine3.15
 
-RUN apk add bash ip6tables pigz sysstat procps lsof util-linux-misc xz curl sudo rsync
-
-RUN curl -L https://github.com/DarthSim/hivemind/releases/download/v1.0.6/hivemind-v1.0.6-linux-amd64.gz -o hivemind.gz \
-  && gunzip hivemind.gz \
-  && mv hivemind /usr/local/bin \
-  && chmod 755 /usr/local/bin/hivemind
-
-# Required for Nix to function as root
-ENV USER root
-COPY create_nix_users.sh /create_nix_users.sh
-RUN /create_nix_users.sh
-
-# Install Nix
-RUN sh <(curl -L https://nixos.org/nix/install) --no-daemon
-
-RUN ln -s /root/.nix-profile/etc/profile.d/nix.sh /etc/profile.d/nix.sh
+RUN apk add bash ip6tables pigz sysstat procps lsof util-linux-misc xz curl sudo
 
 COPY etc/docker/daemon.json /etc/docker/daemon.json
 
@@ -34,9 +19,6 @@ COPY --from=docker/buildx-bin:v0.7 /buildx /usr/libexec/docker/cli-plugins/docke
 
 COPY ./entrypoint ./entrypoint
 COPY ./docker-entrypoint.d/* ./docker-entrypoint.d/
-
-COPY Procfile ./Procfile
-COPY rsyncd.conf /etc/rsyncd.conf
 
 ENV DOCKER_TMPDIR=/data/docker/tmp
 
