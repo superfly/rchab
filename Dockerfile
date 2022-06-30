@@ -9,7 +9,7 @@ COPY dockerproxy .
 RUN GOOS=linux GARCH=amd64 CGO_ENABLED=0 go build -o dockerproxy -ldflags "-X main.gitSha=$BUILD_SHA -X main.buildTime=$(date +'%Y-%m-%dT%TZ')"
 
 FROM docker/buildx-bin:v0.8 as buildx
-FROM docker:20.10.17-alpine3.16
+FROM docker:20
 
 RUN apk add bash ip6tables pigz sysstat procps lsof util-linux-misc xz curl sudo rsync
 
