@@ -287,7 +287,7 @@ func tryPrune(ctx context.Context, client *client.Client) {
 }
 
 func prune(ctx context.Context, client *client.Client) {
-	imgReport, err := client.ImagesPrune(ctx, filters.NewArgs())
+	imgReport, err := client.ImagesPrune(ctx, filters.NewArgs(filters.Arg("until", "12h"), filters.Arg("dangling", "false")))
 	if err != nil {
 		log.Errorf("error pruning images: %v", err)
 	} else {
