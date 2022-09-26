@@ -36,6 +36,10 @@ var (
 	pendingRequests uint64
 	authCache       = cache.New(5*time.Minute, 10*time.Minute)
 
+	//prune
+	pruneThresholdUsedPercent = 0.8
+	pruneThresholdFreeBytes   = 15 * 1000 * 1000 * 1000
+
 	// dev and testing
 	noDockerd = os.Getenv("NO_DOCKERD") == "1"
 	noAuth    = os.Getenv("NO_AUTH") == "1"
@@ -266,18 +270,18 @@ OUTER:
 	return stopFn, client, nil
 }
 
-// tryPrune frees disk space if usage is >= 90%
+// tryPrune frees disk space if necessary
 func tryPrune(ctx context.Context, client *client.Client) {
 	di, err := disk.GetInfo("/data")
 	if err != nil {
 		log.Debugf("could not get disk usage")
 	} else {
-		percentage := (float64(di.Total-di.Free) / float64(di.Total))
-		log.Debugf("disk space used: %0.2f%%", percentage*100)
-		if percentage > 0.9 {
+		percentUsed := (float64(di.Total-di.Free) / float64(di.Total))
+		log.Infof("disk space used: %0.2f%%", percentUsed*100)
+		if percentUsed >= pruneThresholdUsedPercent || di.Free <= uint64(pruneThresholdFreeBytes) {
 			log.Info("Not enough disk space, pruning")
 
-			prune(context.Background(), client)
+			prune(ctx, client)
 		}
 	}
 }
