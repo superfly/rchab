@@ -5,7 +5,7 @@ REPO := flyio/rchab:local-dev-$(GIT_SHA1)
 
 NO_APP_NAME = 0
 NO_AUTH = 0
-FLY_APP_NAME = rchap-local-dev-1337
+FLY_APP_NAME = rchab-local-dev-1337
 
 default: help
 

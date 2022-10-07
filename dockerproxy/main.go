@@ -419,7 +419,7 @@ func authorizeRequestWithCache(appName, authToken string) bool {
 
 // TODO: If we know that we're always going to use 6pn to access builders, we can probably just drop this auth since the network will take care to authorize access within the same org?
 func authorizeRequest(appName, authToken string) bool {
-	fly := api.NewClient(authToken, fmt.Sprintf("rchap/%s", gitSha), "0.0.0.0.0.0.1", log)
+	fly := api.NewClient(authToken, fmt.Sprintf("superfly/rchab/%s", gitSha), "0.0.0.0.0.0.1", log)
 
 	app, err := fly.GetApp(context.TODO(), appName)
 	if app == nil || err != nil {

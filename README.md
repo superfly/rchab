@@ -24,11 +24,11 @@ http://localhost:8080 will have the rchab api in the vm and on your host.
 
 ## Testing with flyctl
 
-`flyctl` can be configured to use a locally running version of rchap with:
+`flyctl` can be configured to use a locally running version of rchab with:
 
 ```shell
-FLY_REMOTE_BUILDER_HOST_WG=1 FLY_RCHAP_OVERRIDE_HOST=tcp://127.0.0.1:2375 LOG_LEVEL=debug fly deploy --remote-only
+FLY_REMOTE_BUILDER_HOST_WG=1 FLY_RCHAB_OVERRIDE_HOST=tcp://127.0.0.1:2375 LOG_LEVEL=debug fly deploy --remote-only
 ```
 
 * `FLY_REMOTE_BUILDER_HOST_WG` disables usermode wireguard
-* `FLY_RCHAP_OVERRIDE_HOST` indicates the ip and port for the docker client to connect to, which will be used instead of the remote builder machine 6pn ip
+* `FLY_RCHAB_OVERRIDE_HOST` indicates the ip and port for the docker client to connect to, which will be used instead of the remote builder machine 6pn ip
