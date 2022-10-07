@@ -32,3 +32,17 @@ FLY_REMOTE_BUILDER_HOST_WG=1 FLY_RCHAB_OVERRIDE_HOST=tcp://127.0.0.1:2375 LOG_LE
 
 * `FLY_REMOTE_BUILDER_HOST_WG` disables usermode wireguard
 * `FLY_RCHAB_OVERRIDE_HOST` indicates the ip and port for the docker client to connect to, which will be used instead of the remote builder machine 6pn ip
+
+## Testing with an organization
+
+Deploy a pre-release version, e.g., with `make build-and-push-docker` and then set on your org with:
+
+```
+fly orgs builder update <your_org> <image_ref>
+```
+
+## Deployment
+
+Github actions deploy changes pushed to the main branch.
+
+Fly.io staff need to make an internal update for the new image to become the default for all builders.

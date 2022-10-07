@@ -15,7 +15,7 @@ help:
 
 ## build docker image and push to registry
 build-and-push-docker:
-	./build.sh
+	./build.sh $(shell git branch --show-current)-$(GIT_SHA1)
 
 ## build docker image
 build-docker:
