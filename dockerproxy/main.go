@@ -84,9 +84,12 @@ func main() {
 	keepAlive := make(chan struct{})
 	go watchDocker(ctx, client, keepAlive)
 
+	httpMux := http.NewServeMux()
+	httpMux.Handle("/", handlers.LoggingHandler(log.Writer(), authRequest(proxy())))
+	httpMux.Handle("/flyio/v1/extendDeadline", handlers.LoggingHandler(log.Writer(), authRequest(extendDeadline())))
 	httpServer := &http.Server{
 		Addr:    ":8080",
-		Handler: handlers.LoggingHandler(log.Writer(), authRequest(proxy())),
+		Handler: httpMux,
 
 		// reuse the context we've created
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
@@ -462,6 +465,17 @@ func authorizeRequest(appName, authToken string) bool {
 	}
 
 	return true
+}
+
+func extendDeadline() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("extendDeadline called with user agent: %s", r.UserAgent())
+		defer func() {
+			jobDeadline.Reset(maxIdleDuration)
+
+		}()
+		w.WriteHeader(http.StatusAccepted)
+	})
 }
 
 // proxy to docker sock, by hijacking the connection
