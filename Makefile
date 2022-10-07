@@ -3,7 +3,9 @@ GO := $(shell which go)
 GIT_SHA1 := $(shell git rev-parse --short HEAD)
 REPO := flyio/rchab:local-dev-$(GIT_SHA1)
 
+NO_APP_NAME = 0
 NO_AUTH = 0
+FLY_APP_NAME = rchap-local-dev-1337
 
 default: help
 
@@ -27,8 +29,8 @@ run-local:
 	test -f /usr/libexec/docker/cli-plugins/docker-buildx && \
 	cd dockerproxy && \
 	echo "Starting dockerproxy..." && \
-	sudo env NO_AUTH=$(NO_AUTH) $(GO) run .
+	sudo env NO_APP_NAME=$(NO_APP_NAME) NO_AUTH=$(NO_AUTH) FLY_APP_NAME=$(FLY_APP_NAME) $(GO) run .
 
 ## run locally and do not require auth
 run-local-no-auth:
-	$(MAKE) run-local NO_AUTH=1
+	$(MAKE) run-local NO_APP_NAME=1 NO_AUTH=1
