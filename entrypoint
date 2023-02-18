@@ -2,6 +2,8 @@
 
 set -e
 
+trap 'echo "Received premature SIGUSR1"' SIGUSR1
+
 if [[ -d "docker-entrypoint.d" ]]
 then
 echo "Running docker-entrypoint.d files"
