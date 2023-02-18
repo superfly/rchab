@@ -60,6 +60,12 @@ var bufPool = sync.Pool{
 const DOCKER_SOCKET_PATH = "/var/run/docker.sock"
 
 func main() {
+	keepAliveSig := make(chan os.Signal, 1)
+	signal.Notify(
+		keepAliveSig,
+		syscall.SIGUSR1,
+	)
+
 	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		lvl = logrus.InfoLevel
@@ -69,12 +75,6 @@ func main() {
 		TimestampFormat: "2006-01-02T15:04:05.000000000Z07:00",
 		FullTimestamp:   true,
 	})
-
-	keepAliveSig := make(chan os.Signal, 1)
-	signal.Notify(
-		keepAliveSig,
-		syscall.SIGUSR1,
-	)
 
 	log.Infof("Build SHA:%s Time:%s", gitSha, buildTime)
 
