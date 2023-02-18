@@ -70,6 +70,12 @@ func main() {
 		FullTimestamp:   true,
 	})
 
+	keepAliveSig := make(chan os.Signal, 1)
+	signal.Notify(
+		keepAliveSig,
+		syscall.SIGUSR1,
+	)
+
 	log.Infof("Build SHA:%s Time:%s", gitSha, buildTime)
 
 	api.SetBaseURL("https://api.fly.io")
@@ -116,12 +122,6 @@ func main() {
 	)
 
 	var killSignaled bool
-
-	keepAliveSig := make(chan os.Signal, 1)
-	signal.Notify(
-		keepAliveSig,
-		syscall.SIGUSR1,
-	)
 
 ALIVE:
 	for {
