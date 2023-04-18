@@ -480,21 +480,24 @@ func extendDeadline() http.Handler {
 			return
 		}
 
-		if  di.Free <= uint64(1 * gb) {
-			w.WriteHeader(http.StatusInsufficientStorage)
+		// prune only if the storage space is too low.
+		err = newInsufficientStorageError(di)
+		if err != nil {
+			client, err := client.NewEnvClient()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				log.Errorf("failed to create a Docker client: %s", err)
+				return
+			}
 
-			free := float64(di.Free) / float64(gb)
-			s := fmt.Sprintf("remaining disk space (%.2fGB) is too low", free)
-			w.Write([]byte(s))
-			return
+			prune(context.Background(), client)
 		}
 
-		percentUsed := (float64(di.Total-di.Free) / float64(di.Total))
-		if percentUsed >= pruneThresholdUsedPercent {
+		// return error if pruning is not enough.
+		err = newInsufficientStorageError(di)
+		if err != nil {
 			w.WriteHeader(http.StatusInsufficientStorage)
-
-			s := fmt.Sprintf("remaining disk space (%.2f%%) is too low", percentUsed)
-			w.Write([]byte(s))
+			w.Write([]byte(err.Error()))
 			return
 		}
 
