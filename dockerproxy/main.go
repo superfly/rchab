@@ -27,6 +27,8 @@ import (
 	"github.com/superfly/flyctl/api"
 )
 
+const gb = 1000 * 1000 * 1000
+
 var (
 	orgSlug         = os.Getenv("ALLOW_ORG_SLUG")
 	log             = logrus.New()
@@ -470,6 +472,32 @@ func authorizeRequest(appName, authToken string) bool {
 func extendDeadline() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Infof("extendDeadline called with user agent: %s", r.UserAgent())
+
+		di, err := disk.GetInfo("/data")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Errorf("failed to check /data: %s", err)
+			return
+		}
+
+		if  di.Free <= uint64(1 * gb) {
+			w.WriteHeader(http.StatusInsufficientStorage)
+
+			free := float64(di.Free) / float64(gb)
+			s := fmt.Sprintf("remaining disk space (%.2fGB) is too low", free)
+			w.Write([]byte(s))
+			return
+		}
+
+		percentUsed := (float64(di.Total-di.Free) / float64(di.Total))
+		if percentUsed >= pruneThresholdUsedPercent {
+			w.WriteHeader(http.StatusInsufficientStorage)
+
+			s := fmt.Sprintf("remaining disk space (%.2f%%) is too low", percentUsed)
+			w.Write([]byte(s))
+			return
+		}
+
 		defer func() {
 			jobDeadline.Reset(maxIdleDuration)
 
