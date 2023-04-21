@@ -27,6 +27,8 @@ import (
 	"github.com/superfly/flyctl/api"
 )
 
+const gb = 1000 * 1000 * 1000
+
 var (
 	orgSlug         = os.Getenv("ALLOW_ORG_SLUG")
 	log             = logrus.New()
@@ -470,6 +472,42 @@ func authorizeRequest(appName, authToken string) bool {
 func extendDeadline() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Infof("extendDeadline called with user agent: %s", r.UserAgent())
+
+		before, err := disk.GetInfo("/data")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Errorf("failed to check /data: %s", err)
+			return
+		}
+
+		// prune only if the storage space is too low.
+		err = newInsufficientStorageError(before)
+		if err != nil {
+			client, err := client.NewEnvClient()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				log.Errorf("failed to create a Docker client: %s", err)
+				return
+			}
+
+			prune(context.Background(), client)
+		}
+
+		// return error if pruning is not enough.
+		after, err := disk.GetInfo("/data")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Errorf("failed to check /data: %s", err)
+			return
+		}
+
+		err = newInsufficientStorageError(after)
+		if err != nil {
+			w.WriteHeader(http.StatusInsufficientStorage)
+			w.Write([]byte(err.Error()))
+			return
+		}
+
 		defer func() {
 			jobDeadline.Reset(maxIdleDuration)
 
