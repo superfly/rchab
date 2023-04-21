@@ -473,7 +473,7 @@ func extendDeadline() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Infof("extendDeadline called with user agent: %s", r.UserAgent())
 
-		di, err := disk.GetInfo("/data")
+		before, err := disk.GetInfo("/data")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			log.Errorf("failed to check /data: %s", err)
@@ -481,7 +481,7 @@ func extendDeadline() http.Handler {
 		}
 
 		// prune only if the storage space is too low.
-		err = newInsufficientStorageError(di)
+		err = newInsufficientStorageError(before)
 		if err != nil {
 			client, err := client.NewEnvClient()
 			if err != nil {
@@ -494,7 +494,14 @@ func extendDeadline() http.Handler {
 		}
 
 		// return error if pruning is not enough.
-		err = newInsufficientStorageError(di)
+		after, err := disk.GetInfo("/data")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Errorf("failed to check /data: %s", err)
+			return
+		}
+
+		err = newInsufficientStorageError(after)
 		if err != nil {
 			w.WriteHeader(http.StatusInsufficientStorage)
 			w.Write([]byte(err.Error()))
