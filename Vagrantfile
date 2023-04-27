@@ -2,6 +2,23 @@
 # vi: set ft=ruby :
 
 Vagrant.configure("2") do |config|
+  # Provision /data. In production, the size is hard-coded in web.
+  # https://github.com/superfly/web/blob/663d025e29d52567ffb6cbe1b2d8640ac7099e46/app/graphql/mutations/ensure_machine_remote_builder.rb#L87
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.storage :file, :size => '50GB'
+    config.vm.provision 'mount_data', type:"shell", inline: <<-SHELL
+      set -euo pipefail
+
+      parted /dev/vdb --script mklabel gpt
+      parted /dev/vdb --script mkpart primary ext4 0% 100%
+
+      mkfs.ext4 /dev/vdb1
+
+      mkdir /data
+      mount /dev/vdb1 /data
+    SHELL
+  end
+
   # TODO: we probably want to build our own base box here, but that's... work. (tvd, 2022-10-06)
   config.vm.box = "generic/ubuntu1804"
   config.vm.box_version = "4.1.14"
