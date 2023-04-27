@@ -26,8 +26,11 @@ Vagrant.configure("2") do |config|
   config.vm.network "forwarded_port", guest: 2375, host: 2375
   config.vm.network "forwarded_port", guest: 8080, host: 8080
 
+  # nfsd disabled UDP by default around 2017, but Vagrant by default uses UDP.
+  # http://git.linux-nfs.org/?p=steved/nfs-utils.git;a=commitdiff;h=fbd7623dd8d5e418e7cb369d4026d5368f7c46a6
+  # https://developer.hashicorp.com/vagrant/docs/synced-folders/nfs
   config.vm.synced_folder ".", "/home/vagrant/rchab",
-    type: "nfs", mount_options: ['local_lock=all']
+    type: "nfs", mount_options: ['local_lock=all'], nfs_udp: false
 
   config.vm.provider :libvirt do |lv|
     lv.memory = 4096
