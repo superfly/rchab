@@ -287,13 +287,20 @@ func tryPrune(ctx context.Context, client *client.Client) {
 		if percentUsed >= pruneThresholdUsedPercent || di.Free <= uint64(pruneThresholdFreeBytes) {
 			log.Info("Not enough disk space, pruning")
 
-			prune(ctx, client)
+			prune(ctx, client, "12h")
 		}
 	}
 }
 
-func prune(ctx context.Context, client *client.Client) {
-	imgReport, err := client.ImagesPrune(ctx, filters.NewArgs(filters.Arg("until", "12h"), filters.Arg("dangling", "false")))
+func prune(ctx context.Context, client *client.Client, until string) {
+	imgReport, err := client.ImagesPrune(ctx, filters.NewArgs(
+		// Remove images created before the duration string (e.g. 12h).
+		filters.Arg("until", until),
+
+		// Remove all images, not just dangling ones.
+		// https://github.com/moby/moby/blob/f117aef2ea63ee008c05a7506c8c9c50a1fa0c7f/docs/api/v1.43.yaml#L8677
+		filters.Arg("dangling", "false"),
+	))
 	if err != nil {
 		log.Errorf("error pruning images: %v", err)
 	} else {
@@ -309,7 +316,7 @@ func prune(ctx context.Context, client *client.Client) {
 
 	bcReport, err := client.BuildCachePrune(ctx, types.BuildCachePruneOptions{
 		All:     true,
-		Filters: filters.NewArgs(filters.Arg("until", "12h")),
+		Filters: filters.NewArgs(filters.Arg("until", until)),
 	})
 
 	if err != nil {
@@ -490,7 +497,7 @@ func extendDeadline() http.Handler {
 				return
 			}
 
-			prune(context.Background(), client)
+			prune(context.Background(), client, "1m")
 		}
 
 		// return error if pruning is not enough.
