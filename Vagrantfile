@@ -2,6 +2,23 @@
 # vi: set ft=ruby :
 
 Vagrant.configure("2") do |config|
+  # Provision /data. In production, the size is hard-coded in web.
+  # https://github.com/superfly/web/blob/663d025e29d52567ffb6cbe1b2d8640ac7099e46/app/graphql/mutations/ensure_machine_remote_builder.rb#L87
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.storage :file, :size => '50GB'
+    config.vm.provision 'mount_data', type:"shell", inline: <<-SHELL
+      set -euo pipefail
+
+      parted /dev/vdb --script mklabel gpt
+      parted /dev/vdb --script mkpart primary ext4 0% 100%
+
+      mkfs.ext4 /dev/vdb1
+
+      mkdir /data
+      mount /dev/vdb1 /data
+    SHELL
+  end
+
   # TODO: we probably want to build our own base box here, but that's... work. (tvd, 2022-10-06)
   config.vm.box = "generic/ubuntu1804"
   config.vm.box_version = "4.1.14"
@@ -9,8 +26,11 @@ Vagrant.configure("2") do |config|
   config.vm.network "forwarded_port", guest: 2375, host: 2375
   config.vm.network "forwarded_port", guest: 8080, host: 8080
 
+  # nfsd disabled UDP by default around 2017, but Vagrant by default uses UDP.
+  # http://git.linux-nfs.org/?p=steved/nfs-utils.git;a=commitdiff;h=fbd7623dd8d5e418e7cb369d4026d5368f7c46a6
+  # https://developer.hashicorp.com/vagrant/docs/synced-folders/nfs
   config.vm.synced_folder ".", "/home/vagrant/rchab",
-    type: "nfs", mount_options: ['local_lock=all']
+    type: "nfs", mount_options: ['local_lock=all'], nfs_udp: false
 
   config.vm.provider :libvirt do |lv|
     lv.memory = 4096
