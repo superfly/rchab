@@ -430,7 +430,7 @@ func authorizeRequestWithCache(appName, authToken string) bool {
 func authorizeRequest(appName, authToken string) bool {
 	fly := api.NewClient(authToken, fmt.Sprintf("superfly/rchab/%s", gitSha), "0.0.0.0.0.0.1", log)
 
-	app, err := fly.GetApp(context.TODO(), appName)
+	app, err := fly.GetAppCompact(context.TODO(), appName)
 	if app == nil || err != nil {
 		log.Warnf("Error fetching app %s: %v", appName, err)
 		return false
@@ -447,7 +447,7 @@ func authorizeRequest(appName, authToken string) bool {
 		log.Warn("FLY_APP_NAME env var is not set!")
 		return false
 	}
-	builderApp, err := fly.GetApp(context.TODO(), builderAppName)
+	builderApp, err := fly.GetAppCompact(context.TODO(), builderAppName)
 	if builderApp == nil || err != nil {
 		log.Warnf("Error fetching builder app %s", builderAppName)
 		return false
