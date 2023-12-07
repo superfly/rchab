@@ -56,9 +56,9 @@ Vagrant.configure("2") do |config|
       net-tools \
       ;
 
-    goversion=1.19.2
+    goversion=1.21.5
     wget https://go.dev/dl/go${goversion}.linux-amd64.tar.gz
-    echo "5e8c5a74fe6470dd7e055a461acda8bb4050ead8c2df70f227e3ff7d8eb7eeb6 go${goversion}.linux-amd64.tar.gz" | sha256sum --check
+    echo "aea86e3c73495f205929cfebba0d63f1382c8ac59be081b6351681415f4063cf go${goversion}.linux-amd64.tar.gz" | sha256sum --check
     rm -rf /usr/local/go && tar -C /usr/local -xzf go${goversion}.linux-amd64.tar.gz
     echo 'export PATH=/usr/local/go/bin:$PATH' | tee /etc/profile.d/golang.sh
     /usr/local/go/bin/go version
