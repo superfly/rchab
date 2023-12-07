@@ -1,6 +1,6 @@
 module github.com/superfly/rchab/dockerproxy
 
-go 1.19
+go 1.21
 
 require (
 	github.com/docker/docker v20.10.8+incompatible
