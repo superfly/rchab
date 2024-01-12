@@ -10,11 +10,7 @@ RUN GOOS=linux GARCH=amd64 CGO_ENABLED=0 go build -o dockerproxy -ldflags "-X ma
 
 FROM docker:24.0.7-alpine3.19
 
-RUN apk add bash iptables-legacy pigz sysstat procps lsof util-linux-misc xz curl sudo \
-    && mv /sbin/iptables /sbin/iptables.original \
-    && mv /sbin/ip6tables /sbin/ip6tables.original \
-    && ln -s /sbin/iptables-legacy /sbin/iptables \
-    && ln -s /sbin/ip6tables-legacy /sbin/ip6tables
+RUN apk add bash pigz sysstat procps lsof util-linux-misc xz curl sudo
 
 COPY etc/docker/daemon.json /etc/docker/daemon.json
 
