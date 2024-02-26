@@ -10,8 +10,8 @@
             "size": 24
         }
     ],
-    "debug": true,
-    "log-level": "debug",
+    "debug": false,
+    "log-level": "info",
     "features": {
         "buildkit": true
     },

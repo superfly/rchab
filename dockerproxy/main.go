@@ -39,6 +39,7 @@ var (
 	noDockerd = os.Getenv("NO_DOCKERD") == "1"
 	noAuth    = os.Getenv("NO_AUTH") == "1"
 	noAppName = os.Getenv("NO_APP_NAME") == "1"
+	noHttps   = os.Getenv("NO_HTTPS") == "1"
 
 	// build variables
 	gitSha    string
@@ -103,9 +104,9 @@ func main() {
 
 	httpMux := http.NewServeMux()
 
-	httpMux.Handle("/", handlers.LoggingHandler(log.Writer(), authRequest(proxy())))
-	httpMux.Handle("/flyio/v1/prune", handlers.LoggingHandler(log.Writer(), authRequest(pruneHandler(dockerClient))))
-	httpMux.Handle("/flyio/v1/extendDeadline", handlers.LoggingHandler(log.Writer(), authRequest(extendDeadline())))
+	httpMux.Handle("/", wrapCommonMiddlewares(dockerProxy()))
+	httpMux.Handle("/flyio/v1/prune", wrapCommonMiddlewares(pruneHandler(dockerClient)))
+	httpMux.Handle("/flyio/v1/extendDeadline", wrapCommonMiddlewares((extendDeadline())))
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
@@ -212,7 +213,7 @@ func extendDeadline() http.Handler {
 	})
 }
 
-func proxy() http.Handler {
+func dockerProxy() http.Handler {
 	reverseProxy := httputil.NewSingleHostReverseProxy(&url.URL{
 		Scheme: DOCKER_SCHEME,
 		Host:   DOCKER_LISTENER,
@@ -239,4 +240,25 @@ func pruneHandler(client *client.Client) http.HandlerFunc {
 		prune(r.Context(), client, until)
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+func upgradeToHTTPs(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !noHttps && r.Header.Get("X-Forwarded-Proto") == "http" {
+			http.Redirect(w, r, "https://"+r.Host+r.RequestURI, http.StatusMovedPermanently)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+func wrapCommonMiddlewares(h http.Handler) http.Handler {
+	return handlers.LoggingHandler(
+		log.Writer(),
+		upgradeToHTTPs(
+			authRequest(
+				h,
+			),
+		),
+	)
 }
