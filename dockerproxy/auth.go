@@ -18,7 +18,7 @@ func authRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		appName, authToken, ok := r.BasicAuth()
 
-		if !ok || !authorizeRequestWithCache(appName, authToken) {
+		if !ok || !authorizeRequestWithCache(r.Context(), appName, authToken) {
 			w.WriteHeader(http.StatusUnauthorized)
 			err := json.NewEncoder(w).Encode(map[string]string{
 				"message": "You are not authorized to use this builder",
@@ -33,7 +33,7 @@ func authRequest(next http.Handler) http.Handler {
 	})
 }
 
-func authorizeRequestWithCache(appName, authToken string) bool {
+func authorizeRequestWithCache(ctx context.Context, appName, authToken string) bool {
 	if noAuth {
 		return true
 	}
@@ -50,17 +50,17 @@ func authorizeRequestWithCache(appName, authToken string) bool {
 		}
 	}
 
-	authorized := authorizeRequest(appName, authToken)
+	authorized := authorizeRequest(ctx, appName, authToken)
 	authCache.Set(cacheKey, authorized, 0)
 	log.Debugln("authorized from api")
 	return authorized
 }
 
 // TODO: If we know that we're always going to use 6pn to access builders, we can probably just drop this auth since the network will take care to authorize access within the same org?
-func authorizeRequest(appName, authToken string) bool {
+func authorizeRequest(ctx context.Context, appName, authToken string) bool {
 	fly := api.NewClient(authToken, fmt.Sprintf("superfly/rchab/%s", gitSha), "0.0.0.0.0.0.1", log)
 
-	app, err := fly.GetAppCompact(context.TODO(), appName)
+	app, err := fly.GetAppCompact(ctx, appName)
 	if app == nil || err != nil {
 		log.Warnf("Error fetching app %s: %v", appName, err)
 		return false

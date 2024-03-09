@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"time"
@@ -12,6 +13,10 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/mitchellh/go-ps"
 	"github.com/pkg/errors"
+)
+
+const (
+	healthCheckTimeout = 10 * time.Second
 )
 
 func runDockerd() (func() error, *client.Client, error) {
@@ -25,7 +30,10 @@ func runDockerd() (func() error, *client.Client, error) {
 	}
 
 	// just to be sure, because machines now reuse snapshots
-	os.RemoveAll("/var/run/docker.pid")
+	err := os.RemoveAll("/var/run/docker.pid")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, errors.Wrap(err, "could not delete previous docker pid")
+	}
 
 	// Launch `dockerd`
 	dockerd := exec.Command("dockerd", "-p", "/var/run/docker.pid")
@@ -41,6 +49,7 @@ func runDockerd() (func() error, *client.Client, error) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		log.Warnln("Error bootstrapping buildx builder:", err)
+		return nil, nil, err
 	}
 
 	dockerDone := make(chan struct{})
@@ -52,7 +61,7 @@ func runDockerd() (func() error, *client.Client, error) {
 		close(dockerDone)
 	}()
 
-	healthCtx, healthCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	healthCtx, healthCancel := context.WithTimeout(context.Background(), healthCheckTimeout)
 	defer healthCancel()
 
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
@@ -61,35 +70,36 @@ func runDockerd() (func() error, *client.Client, error) {
 	}
 
 	stopFn := func() error {
-		if dockerd.Process != nil {
-			tryPrune(context.Background(), dockerClient)
-			if err := dockerd.Process.Signal(os.Interrupt); err != nil {
-				return err
-			}
-			<-dockerDone
-			log.Info("dockerd has exited")
+		if dockerd.Process == nil {
 			return nil
 		}
+
+		tryPrune(context.Background(), dockerClient)
+		if err := dockerd.Process.Signal(os.Interrupt); err != nil {
+			return err
+		}
+		<-dockerDone
+		log.Info("dockerd has exited")
 		return nil
 	}
 
 	for {
 		log.Info("pinging dockerd")
-		resp, err := dockerClient.Ping(healthCtx)
+		_, err := dockerClient.Ping(healthCtx)
 
 		select {
 		case <-healthCtx.Done():
-			return nil, nil, fmt.Errorf("dockerd failed to boot after 10 seconds")
+			return nil, nil, fmt.Errorf("dockerd failed to boot after %s", healthCheckTimeout)
 		case <-dockerDone:
 			return nil, nil, fmt.Errorf("dockerd exited before we could ascertain its healthyness")
 		default:
 			if err != nil {
 				log.Errorf("failed to ping dockerd: %v", err)
 				time.Sleep(200 * time.Millisecond)
+				continue
 			}
-			if resp.APIVersion != "" {
-				return stopFn, dockerClient, nil
-			}
+			return stopFn, dockerClient, nil
+
 		}
 	}
 }
