@@ -1,31 +1,40 @@
-# fly.toml file generated for rchab on 2021-01-08T16:05:33-05:00
+app = 'rchab'
+primary_region = 'ams'
+kill_signal = 'SIGINT'
+kill_timeout = '5s'
 
-app = "rchab"
-
-kill_signal = "SIGINT"
-kill_timeout = 5
-
-[[mounts]]
-source = "data"
-destination = "/data"
-
-[[services]]
-internal_port = 8080
-protocol = "tcp"
-
-[services.concurrency]
-hard_limit = 25
-soft_limit = 20
-
-[[services.ports]]
-handlers = ["tls"]
-port = 10000
+[build]
 
 [env]
-ALLOW_ORG_SLUG = "fly"
-LOG_LEVEL = "debug"
-DATA_DIR = "/data"
+  ALLOW_ORG_SLUG = 'fly'
+  DATA_DIR = '/data'
+  LOG_LEVEL = 'info'
 
-[metrics]
-port = 9323
-path = "/metrics"
+[[mounts]]
+  source = 'data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+  [http_service.http_options]
+    h2_backend = true
+    
+  [http_service.tls_options]
+    alpn = ['h2']
+
+
+
+[[vm]]
+  memory = '4gb'
+  cpu_kind = 'shared'
+  cpus = 4
+
+[[metrics]]
+  port = 9323
+  path = '/metrics'

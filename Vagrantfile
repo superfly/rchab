@@ -19,6 +19,9 @@ Vagrant.configure("2") do |config|
     SHELL
   end
 
+  # Host-only network configuration
+  config.vm.network "private_network", ip: "192.168.50.10"
+  
   # TODO: we probably want to build our own base box here, but that's... work. (tvd, 2022-10-06)
   config.vm.box = "generic/ubuntu1804"
   config.vm.box_version = "4.1.14"
@@ -58,7 +61,7 @@ Vagrant.configure("2") do |config|
 
     goversion=1.21.5
     wget https://go.dev/dl/go${goversion}.linux-amd64.tar.gz
-    echo "aea86e3c73495f205929cfebba0d63f1382c8ac59be081b6351681415f4063cf go${goversion}.linux-amd64.tar.gz" | sha256sum --check
+    echo "e2bc0b3e4b64111ec117295c088bde5f00eeed1567999ff77bc859d7df70078e go${goversion}.linux-amd64.tar.gz" | sha256sum --check
     rm -rf /usr/local/go && tar -C /usr/local -xzf go${goversion}.linux-amd64.tar.gz
     echo 'export PATH=/usr/local/go/bin:$PATH' | tee /etc/profile.d/golang.sh
     /usr/local/go/bin/go version
