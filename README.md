@@ -10,12 +10,12 @@ Then, flyctl will use this remote builder for all applications deployed by the o
 You probably/definitely want to use a separate vm, like vagrant. This service runs and manages its own docker service, which will maybe interfere with up the docker service on your system.
 
 ```shell
-vagrant up     # gets you a vm with all the tools you need
-vagrant ssh    # gets you onto that vm
+vagrant up             # gets you a vm with all the tools you need
+vagrant ssh            # gets you onto that vm
 
-cd rchab       # this is a folder on the vm, which is synced with the local repo and it support live updated 🎉
+cd rchab               # this is a folder on the vm, which is synced with the local repo and it support live updated 🎉
 
-make run-local # run the service!
+make run-local-no-auth # run the service!
 ```
 
 If that all worked, the service is running 🚀
