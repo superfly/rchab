@@ -20,7 +20,7 @@ Vagrant.configure("2") do |config|
   SHELL
 
   # Host-only network configuration
-  config.vm.network "private_network", ip: "192.168.50.10"
+  config.vm.network "private_network", ip: "192.168.56.10"
   
   # TODO: we probably want to build our own base box here, but that's... work. (tvd, 2022-10-06)
   config.vm.box = "generic/ubuntu1804"
