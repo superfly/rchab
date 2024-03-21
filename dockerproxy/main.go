@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -107,6 +108,7 @@ func main() {
 	httpMux.Handle("/", wrapCommonMiddlewares(dockerProxy()))
 	httpMux.Handle("/flyio/v1/prune", wrapCommonMiddlewares(pruneHandler(dockerClient)))
 	httpMux.Handle("/flyio/v1/extendDeadline", wrapCommonMiddlewares((extendDeadline())))
+	httpMux.Handle("/flyio/v1/settings", wrapCommonMiddlewares(settingsHandler()))
 
 	httpServer := &http.Server{
 		Addr:    ":8080",
@@ -239,6 +241,19 @@ func pruneHandler(client *client.Client) http.HandlerFunc {
 
 		prune(r.Context(), client, until)
 		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func settingsHandler() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		err := json.NewEncoder(w).Encode(map[string]bool{
+			"supports_wgless_deployment": true,
+		})
+		if err != nil {
+			log.Warnln("error writing settings response", err)
+			return
+		}
 	})
 }
 
