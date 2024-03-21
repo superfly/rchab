@@ -108,6 +108,7 @@ func main() {
 	httpMux.Handle("/", wrapCommonMiddlewares(dockerProxy()))
 	httpMux.Handle("/flyio/v1/prune", wrapCommonMiddlewares(pruneHandler(dockerClient)))
 	httpMux.Handle("/flyio/v1/extendDeadline", wrapCommonMiddlewares((extendDeadline())))
+	httpMux.Handle("/flyio/v1/buildOverlaybdImage", wrapCommonMiddlewares(overlaybdImageHandler()))
 	httpMux.Handle("/flyio/v1/settings", wrapCommonMiddlewares(settingsHandler()))
 
 	httpServer := &http.Server{
