@@ -1,4 +1,9 @@
-app = 'rchab'
+# fly.toml app configuration file generated for grif-rchaz on 2024-03-01T16:09:27Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'grif-rchaz'
 primary_region = 'ams'
 kill_signal = 'SIGINT'
 kill_timeout = '5s'
@@ -22,13 +27,11 @@ kill_timeout = '5s'
   min_machines_running = 0
   processes = ['app']
 
-  [http_service.http_options]
-    h2_backend = true
-    
   [http_service.tls_options]
     alpn = ['h2']
 
-
+  [http_service.http_options]
+    h2_backend = true
 
 [[vm]]
   memory = '4gb'
