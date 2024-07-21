@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -48,10 +49,18 @@ var (
 )
 
 const (
-	DOCKER_LISTENER = "localhost:2375"
+	DOCKER_LISTENER = "localhost:2376"
 	DOCKER_SCHEME   = "http"
 	FLY_API_URL     = "https://api.fly.io"
 )
+
+var allowedPaths = []*regexp.Regexp{
+	regexp.MustCompile("/flyio/.*"),
+	regexp.MustCompile("/grpc"),
+	regexp.MustCompile("/_ping"),
+	regexp.MustCompile("^(/v[0-9.]*)?/info"),
+	regexp.MustCompile("^(/v[0-9.]*)?/images/.*"),
+}
 
 func init() {
 	api.SetBaseURL(FLY_API_URL)
@@ -105,7 +114,7 @@ func main() {
 
 	httpMux := http.NewServeMux()
 
-	httpMux.Handle("/", wrapCommonMiddlewares(dockerProxy()))
+	httpMux.Handle("/", wrapCommonMiddlewares(dockerProxy(nil)))
 	httpMux.Handle("/flyio/v1/prune", wrapCommonMiddlewares(pruneHandler(dockerClient)))
 	httpMux.Handle("/flyio/v1/extendDeadline", wrapCommonMiddlewares((extendDeadline())))
 	httpMux.Handle("/flyio/v1/buildOverlaybdImage", wrapCommonMiddlewares(overlaybdImageHandler()))
@@ -128,7 +137,28 @@ func main() {
 	go func() {
 		log.Infof("Listening on %s", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatalf("failed to listenAndServe: %v", err)
+			log.Fatalf("failed to listenAndServe on %s: %v", httpServer.Addr, err)
+		}
+	}()
+
+	httpServer2 := &http.Server{
+		Addr:    ":2375",
+		Handler: dockerProxy(allowedPaths),
+		BaseContext: func(_ net.Listener) context.Context {
+			return ctx
+		},
+
+		// keep these as high as possible. shorter read/write timeouts can cause push operations
+		// for large images to hang midway with the error -> context.Cancelled.
+		ReadTimeout:  15 * time.Minute,
+		WriteTimeout: 15 * time.Minute,
+	}
+	httpServer2.RegisterOnShutdown(cancel)
+
+	go func() {
+		log.Infof("Listening on %s", httpServer2.Addr)
+		if err := httpServer2.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatalf("failed to listenAndServe on %s: %v", httpServer2.Addr, err)
 		}
 	}()
 
@@ -158,11 +188,17 @@ func main() {
 
 	log.Info("shutting down proxy")
 	if err := httpServer.Shutdown(gracefullCtx); err != nil {
-		log.Warnf("shutdown error: %v\n", err)
+		log.Warnf("shutdown error on %s: %v\n", httpServer.Addr, err)
 		os.Exit(1)
 	}
 
-	log.Info("shutting down proxy")
+	log.Info("shutting down proxy2")
+	if err := httpServer2.Shutdown(gracefullCtx); err != nil {
+		log.Warnf("shutdown error on %s: %v\n", httpServer2.Addr, err)
+		os.Exit(1)
+	}
+
+	log.Info("shutting down docker")
 	stopDockerdFn()
 
 	log.Info("shutdown complete")
@@ -216,7 +252,7 @@ func extendDeadline() http.Handler {
 	})
 }
 
-func dockerProxy() http.Handler {
+func dockerProxy(allowedPaths []*regexp.Regexp) http.Handler {
 	reverseProxy := httputil.NewSingleHostReverseProxy(&url.URL{
 		Scheme: DOCKER_SCHEME,
 		Host:   DOCKER_LISTENER,
@@ -224,6 +260,19 @@ func dockerProxy() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pendingRequests.Add(1)
+
+		allowed := false
+		for _, allowedPath := range allowedPaths {
+			if allowedPath.MatchString(r.URL.Path) {
+				allowed = true
+				break
+			}
+		}
+		if allowedPaths != nil && !allowed {
+			log.Warnf("Refusing to proxy %s", r.URL)
+			http.Error(w, `{"message":"page not found"}`, http.StatusNotFound)
+			return
+		}
 
 		defer func() {
 			pendingRequests.Add(^uint64(0))
