@@ -114,7 +114,7 @@ func main() {
 
 	httpMux := http.NewServeMux()
 
-	httpMux.Handle("/", wrapCommonMiddlewares(dockerProxy(nil)))
+	httpMux.Handle("/", wrapCommonMiddlewares(dockerProxy()))
 	httpMux.Handle("/flyio/v1/prune", wrapCommonMiddlewares(pruneHandler(dockerClient)))
 	httpMux.Handle("/flyio/v1/extendDeadline", wrapCommonMiddlewares((extendDeadline())))
 	httpMux.Handle("/flyio/v1/buildOverlaybdImage", wrapCommonMiddlewares(overlaybdImageHandler()))
@@ -143,7 +143,7 @@ func main() {
 
 	httpServer2 := &http.Server{
 		Addr:    ":2375",
-		Handler: dockerProxy(allowedPaths),
+		Handler: dockerProxy(),
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
 		},
@@ -252,7 +252,7 @@ func extendDeadline() http.Handler {
 	})
 }
 
-func dockerProxy(allowedPaths []*regexp.Regexp) http.Handler {
+func dockerProxy() http.Handler {
 	reverseProxy := httputil.NewSingleHostReverseProxy(&url.URL{
 		Scheme: DOCKER_SCHEME,
 		Host:   DOCKER_LISTENER,
@@ -268,7 +268,7 @@ func dockerProxy(allowedPaths []*regexp.Regexp) http.Handler {
 				break
 			}
 		}
-		if allowedPaths != nil && !allowed {
+		if !allowed {
 			log.Warnf("Refusing to proxy %s", r.URL)
 			http.Error(w, `{"message":"page not found"}`, http.StatusNotFound)
 			return
