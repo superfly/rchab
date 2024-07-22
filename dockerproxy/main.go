@@ -55,9 +55,9 @@ const (
 )
 
 var allowedPaths = []*regexp.Regexp{
-	regexp.MustCompile("/flyio/.*"),
-	regexp.MustCompile("/grpc"),
-	regexp.MustCompile("/_ping"),
+	regexp.MustCompile("^/flyio/.*"),
+	regexp.MustCompile("^/grpc"),
+	regexp.MustCompile("^/_ping"),
 	regexp.MustCompile("^(/v[0-9.]*)?/info"),
 	regexp.MustCompile("^(/v[0-9.]*)?/images/.*"),
 }
