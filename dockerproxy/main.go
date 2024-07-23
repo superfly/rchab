@@ -265,7 +265,6 @@ func dockerProxy() http.Handler {
 			pendingRequests.Add(^uint64(0))
 		}()
 
-
 		allowed := false
 		for _, allowedPath := range allowedPaths {
 			if allowedPath.MatchString(r.URL.Path) {
