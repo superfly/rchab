@@ -261,6 +261,10 @@ func dockerProxy() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pendingRequests.Add(1)
 
+		defer func() {
+			pendingRequests.Add(^uint64(0))
+		}()
+
 		allowed := false
 		for _, allowedPath := range allowedPaths {
 			if allowedPath.MatchString(r.URL.Path) {
@@ -273,10 +277,6 @@ func dockerProxy() http.Handler {
 			http.Error(w, `{"message":"page not found"}`, http.StatusNotFound)
 			return
 		}
-
-		defer func() {
-			pendingRequests.Add(^uint64(0))
-		}()
 
 		reverseProxy.ServeHTTP(w, r)
 	})
