@@ -9,6 +9,7 @@ kill_timeout = '5s'
   ALLOW_ORG_SLUG = 'fly'
   DATA_DIR = '/data'
   LOG_LEVEL = 'info'
+  NO_FILTER = '1'
 
 [[mounts]]
   source = 'data'

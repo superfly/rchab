@@ -42,6 +42,7 @@ var (
 	noAuth    = os.Getenv("NO_AUTH") == "1"
 	noAppName = os.Getenv("NO_APP_NAME") == "1"
 	noHttps   = os.Getenv("NO_HTTPS") == "1"
+	noFilter  = os.Getenv("NO_FILTER") == "1"
 
 	// build variables
 	gitSha    string
@@ -58,6 +59,8 @@ var allowedPaths = []*regexp.Regexp{
 	regexp.MustCompile("^/flyio/.*$"),
 	regexp.MustCompile("^/grpc$"),
 	regexp.MustCompile("^/_ping$"),
+	regexp.MustCompile("^(/v[0-9.]*)?/version$"),
+	regexp.MustCompile("^(/v[0-9.]*)?/volumes/.*$"),
 	regexp.MustCompile("^(/v[0-9.]*)?/info$"),
 	regexp.MustCompile("^(/v[0-9.]*)?/images/.*$"),
 }
@@ -273,9 +276,11 @@ func dockerProxy() http.Handler {
 			}
 		}
 		if !allowed {
-			log.Warnf("Refusing to proxy %s", r.URL)
-			http.Error(w, `{"message":"page not found"}`, http.StatusNotFound)
-			return
+			log.Warnf("Invalid path path=%s agent=%q", r.URL, r.UserAgent())
+			if !noFilter {
+				http.Error(w, `{"message":"page not found"}`, http.StatusNotFound)
+				return
+			}
 		}
 
 		reverseProxy.ServeHTTP(w, r)
