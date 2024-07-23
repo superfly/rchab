@@ -42,7 +42,7 @@ var (
 	noAuth    = os.Getenv("NO_AUTH") == "1"
 	noAppName = os.Getenv("NO_APP_NAME") == "1"
 	noHttps   = os.Getenv("NO_HTTPS") == "1"
-	noFilter  = os.Getenv("NO_FILTER") == "1"
+	noFilter  = true
 
 	// build variables
 	gitSha    string
