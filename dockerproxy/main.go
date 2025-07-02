@@ -38,11 +38,12 @@ var (
 	pruneThresholdFreeBytes   = 15 * 1000 * 1000 * 1000
 
 	// dev and testing
-	noDockerd = os.Getenv("NO_DOCKERD") == "1"
-	noAuth    = os.Getenv("NO_AUTH") == "1"
-	noAppName = os.Getenv("NO_APP_NAME") == "1"
-	noHttps   = os.Getenv("NO_HTTPS") == "1"
-	noFilter  = true
+	noDockerd              = os.Getenv("NO_DOCKERD") == "1"
+	noAuth                 = os.Getenv("NO_AUTH") == "1"
+	noAppName              = os.Getenv("NO_APP_NAME") == "1"
+	noHttps                = os.Getenv("NO_HTTPS") == "1"
+	allowThirdPartyOrgSlug = os.Getenv("ALLOW_THIRD_PARTY_ORG_SLUG")
+	noFilter               = true
 
 	// build variables
 	gitSha    string

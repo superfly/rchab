@@ -72,6 +72,11 @@ func authorizeRequest(ctx context.Context, appName, authToken string) bool {
 		return true
 	}
 
+	if allowThirdPartyOrgSlug == app.Organization.Slug {
+		log.Warnf("Allowed %s from third party organization %s", appName, app.Organization.Slug)
+		return true
+	}
+
 	builderAppName, ok := os.LookupEnv("FLY_APP_NAME")
 	if !ok {
 		log.Warn("FLY_APP_NAME env var is not set!")
