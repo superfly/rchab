@@ -72,8 +72,6 @@ func authorizeRequest(ctx context.Context, appName, authToken string) bool {
 		return true
 	}
 
-	log.Warnf("allowThirdPartyOrgSlug %s", allowThirdPartyOrgSlug)
-	log.Warnf("org slug %s", app.Organization.Slug)
 	if allowThirdPartyOrgSlug == app.Organization.Slug {
 		log.Warnf("Allowed %s from third party organization %s", appName, app.Organization.Slug)
 		return true
