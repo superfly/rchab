@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	healthCheckTimeout = 10 * time.Second
+	healthCheckTimeout = 20 * time.Second
 )
 
 func runDockerd() (func() error, *client.Client, error) {

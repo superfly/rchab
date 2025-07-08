@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/superfly/flyctl/api"
+	api "github.com/superfly/fly-go"
 )
 
 func authRequest(next http.Handler) http.Handler {
@@ -51,6 +51,9 @@ func authorizeRequestWithCache(ctx context.Context, appName, authToken string) b
 	}
 
 	authorized := authorizeRequest(ctx, appName, authToken)
+	if ctx.Err() != nil {
+		return false
+	}
 	authCache.Set(cacheKey, authorized, 0)
 	log.Debugln("authorized from api")
 	return authorized

@@ -20,7 +20,7 @@ import (
 	"github.com/minio/minio/pkg/disk"
 	"github.com/patrickmn/go-cache"
 	"github.com/sirupsen/logrus"
-	"github.com/superfly/flyctl/api"
+	api "github.com/superfly/fly-go"
 )
 
 const gb = 1000 * 1000 * 1000
