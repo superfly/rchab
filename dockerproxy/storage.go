@@ -31,7 +31,7 @@ func prune(ctx context.Context, dockerClient *client.Client, until string) {
 		filters.Arg("until", until),
 
 		// Remove all images, not just dangling ones.
-		// https://github.com/moby/moby/blob/f117aef2ea63ee008c05a7506c8c9c50a1fa0c7f/docs/api/v1.43.yaml#L8677
+		// https://github.com/moby/moby/blob/main/docs/api/v1.44.yaml#L8677
 		filters.Arg("dangling", "false"),
 	))
 	if err != nil {
