@@ -27,12 +27,12 @@ WORKDIR /app
 COPY dockerproxy .
 RUN GOOS=linux GARCH=amd64 CGO_ENABLED=0 go build -o dockerproxy -ldflags "-X main.gitSha=$BUILD_SHA -X main.buildTime=$(date +'%Y-%m-%dT%TZ')"
 
-FROM docker:24.0.7-alpine3.19
+FROM docker:25.0.5-alpine3.20
 ARG BUILD_SHA
 RUN apk add bash pigz sysstat procps lsof util-linux-misc xz curl sudo libcurl e2fsprogs e2fsprogs-libs libaio libnl3 libssl3 zlib zstd-libs
 COPY etc/docker/daemon.json /etc/docker/daemon.json
 COPY --from=dockerproxy_build /app/dockerproxy /dockerproxy
-COPY --from=docker/buildx-bin:v0.12 /buildx /usr/libexec/docker/cli-plugins/docker-buildx
+COPY --from=docker/buildx-bin:v0.13.1 /buildx /usr/libexec/docker/cli-plugins/docker-buildx
 COPY --from=overlaybd_snapshotter_build /opt/overlaybd/snapshotter /opt/overlaybd/snapshotter
 COPY --from=overlaybd_snapshotter_build /etc/overlaybd-snapshotter /etc/overlaybd-snapshotter
 COPY --from=overlaybd_build /opt/overlaybd /opt/overlaybd
