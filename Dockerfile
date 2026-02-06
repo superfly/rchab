@@ -1,16 +1,19 @@
 FROM golang:1.21-alpine AS overlaybd_snapshotter_build
 WORKDIR /work
 RUN apk add git make
-RUN git clone --branch v1.0.4 https://github.com/containerd/accelerated-container-image.git
+# v1.4.1: Updated from v1.0.4 (2+ years old) for Docker 25 compatibility improvements
+RUN git clone --branch v1.4.1 https://github.com/containerd/accelerated-container-image.git
 RUN cd accelerated-container-image \
     && make \
     && make install
 
-FROM alpine:3.19 AS overlaybd_build
+FROM alpine:3.20 AS overlaybd_build
 WORKDIR /work
 RUN apk add bash cmake curl-dev e2fsprogs-dev gcc g++ gflags-dev git gtest-dev make libaio-dev libnl3-dev linux-headers openssl-dev patch pkgconf sudo zlib-dev zstd-dev
 RUN git clone https://github.com/superfly/overlaybd \
     && cd overlaybd \
+    # Pin to specific commit for reproducible builds (was unpinned HEAD)
+    && git checkout 6a6651652014bbcc5dd87a49f15ca2638ae9b1dc \
     && git submodule update --init
 RUN mkdir -p overlaybd/build \
     && cd overlaybd/build \

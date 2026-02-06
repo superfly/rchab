@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The application has two main layers:
 
-1. **Container (root level)** — Dockerfile builds a multi-stage image based on `docker:24.0.7-alpine3.19`. It bundles dockerd, buildx, overlaybd (accelerated container images), and the Go proxy binary. The entrypoint runs `docker-entrypoint.d/` scripts (Docker data dir setup, sysctl tuning) then starts the proxy.
+1. **Container (root level)** — Dockerfile builds a multi-stage image based on `docker:25.0.5-alpine3.20`. It bundles dockerd, buildx, overlaybd (accelerated container images), and the Go proxy binary. The entrypoint runs `docker-entrypoint.d/` scripts (Docker data dir setup, sysctl tuning) then starts the proxy.
 
 2. **`dockerproxy/` (Go application)** — An HTTP reverse proxy that sits in front of dockerd. All source files are in a single flat package (`package main`):
    - `main.go` — HTTP server setup, reverse proxy to dockerd (`localhost:2376`), auto-shutdown idle timer, path filtering, middleware chain (logging → HTTPS upgrade → auth → handler)
