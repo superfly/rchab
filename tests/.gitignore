@@ -1,0 +1,7 @@
+# Ignore all test outputs and logs
+*.log
+/tmp/
+*.txt
+
+# Keep the test scripts themselves
+!*.sh
