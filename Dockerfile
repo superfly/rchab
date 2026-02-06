@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS overlaybd_snapshotter_build
+FROM golang:1.23-alpine AS overlaybd_snapshotter_build
 WORKDIR /work
 RUN apk add git make
 # v1.4.1: Updated from v1.0.4 (2+ years old) for Docker 25 compatibility improvements
@@ -22,7 +22,7 @@ RUN cd overlaybd/build \
     && make -j$(nproc) \
     && make install
 
-FROM golang:1.21 as dockerproxy_build
+FROM golang:1.24 as dockerproxy_build
 WORKDIR /app
 COPY dockerproxy .
 RUN GOOS=linux GARCH=amd64 CGO_ENABLED=0 go build -o dockerproxy -ldflags "-X main.gitSha=$BUILD_SHA -X main.buildTime=$(date +'%Y-%m-%dT%TZ')"
@@ -32,7 +32,7 @@ ARG BUILD_SHA
 RUN apk add bash pigz sysstat procps lsof util-linux-misc xz curl sudo libcurl e2fsprogs e2fsprogs-libs libaio libnl3 libssl3 zlib zstd-libs
 COPY etc/docker/daemon.json /etc/docker/daemon.json
 COPY --from=dockerproxy_build /app/dockerproxy /dockerproxy
-COPY --from=docker/buildx-bin:v0.13.1 /buildx /usr/libexec/docker/cli-plugins/docker-buildx
+COPY --from=docker/buildx-bin:v0.13 /buildx /usr/libexec/docker/cli-plugins/docker-buildx
 COPY --from=overlaybd_snapshotter_build /opt/overlaybd/snapshotter /opt/overlaybd/snapshotter
 COPY --from=overlaybd_snapshotter_build /etc/overlaybd-snapshotter /etc/overlaybd-snapshotter
 COPY --from=overlaybd_build /opt/overlaybd /opt/overlaybd
