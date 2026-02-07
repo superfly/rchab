@@ -9,6 +9,8 @@ FLY_APP_NAME = rchab-local-dev-1337
 
 default: help
 
+.PHONY: help build-docker build-and-push-docker run-local run-local-no-auth test test-integration test-all lint
+
 ## show this message
 help:
 	@awk '/^##.*$$/,/[a-zA-Z_-]+:/' $(MAKEFILE_LIST) | awk '!(NR%2){print $$0p}{p=$$0}' | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' | sort
@@ -34,3 +36,25 @@ run-local:
 ## run locally and do not require auth
 run-local-no-auth:
 	$(MAKE) run-local NO_APP_NAME=1 NO_AUTH=1
+
+## run Go unit tests
+test:
+	cd dockerproxy && go test -v ./...
+
+## run critical integration tests (Tier 2)
+test-integration:
+	cd tests && ./run-tests.sh tier2
+
+## run full test suite (Tier 3)
+test-all:
+	cd tests && ./run-tests.sh tier3
+
+## run linting (go vet, gofmt)
+lint:
+	cd dockerproxy && go vet ./...
+	@if [ -n "$$(gofmt -l dockerproxy/)" ]; then \
+		echo "Code is not properly formatted:"; \
+		gofmt -l dockerproxy/; \
+		exit 1; \
+	fi
+	cd dockerproxy && go mod verify
