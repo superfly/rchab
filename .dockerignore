@@ -1,2 +1,36 @@
+# Fly.io specific
 fly.toml
 id_rsa
+
+# Git
+.git
+.gitignore
+.github
+
+# Tests (not needed in image)
+tests/
+TEST_RESULTS.md
+
+# Documentation
+*.md
+!README.md
+CLAUDE.md
+
+# Development files
+.pre-commit-config.yaml
+Vagrantfile
+.vagrant
+
+# Build artifacts
+*.log
+*.tmp
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
