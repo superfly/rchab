@@ -4,7 +4,9 @@ set -euo pipefail
 echo "=== Tier 1.2: Docker Build Verification ==="
 echo ""
 
-cd /home/sprite/flyctl/rchab
+# Get repository root (tests are run from tests/ directory)
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${REPO_ROOT}"
 
 # Check if image already exists (from CI build)
 if docker images flyio/rchab:test --format "{{.Repository}}:{{.Tag}}" | grep -q "flyio/rchab:test"; then

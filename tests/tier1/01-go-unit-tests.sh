@@ -4,7 +4,9 @@ set -euo pipefail
 echo "=== Tier 1.1: Go Unit Tests ==="
 echo ""
 
-cd /home/sprite/flyctl/rchab/dockerproxy
+# Get repository root (tests are run from tests/ directory)
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${REPO_ROOT}/dockerproxy"
 
 echo "Running Go tests..."
 go test -v ./...
