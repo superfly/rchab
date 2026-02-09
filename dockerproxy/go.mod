@@ -67,6 +67,4 @@ require (
 	gotest.tools/v3 v3.0.3 // indirect
 )
 
-replace github.com/containerd/containerd => github.com/containerd/containerd v1.3.1-0.20200227195959-4d242818bf55
-
 replace github.com/docker/docker => github.com/docker/docker v25.0.5+incompatible

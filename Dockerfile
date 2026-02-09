@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS overlaybd_snapshotter_build
+FROM golang:1.24-alpine AS overlaybd_snapshotter_build
 WORKDIR /work
 RUN apk add git make
 # v1.4.1: Updated from v1.0.4 (2+ years old) for Docker 25 compatibility improvements

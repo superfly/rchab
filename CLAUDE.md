@@ -82,7 +82,7 @@ GitHub Actions (`.github/workflows/ci.yaml`) builds and pushes the Docker image 
 
 ## Key Dependencies
 
-- Go 1.21, Docker 25.0.5
+- Go 1.24, Docker 25.0.5
 - `github.com/superfly/flyctl/api` — Fly API client for auth
 - `github.com/gorilla/handlers` — HTTP logging middleware
 - `github.com/minio/minio/pkg/disk` — Disk usage info
