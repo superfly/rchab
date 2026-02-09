@@ -312,19 +312,6 @@ export GOMODCACHE=/tmp/go-mod-cache
 - Leverage caching (already configured)
 - Run tests in parallel where possible (lint and test jobs run concurrently)
 
-## Migration from Old Test Structure
-
-The old test structure (`00-setup-environment.sh` through `08-test-integration.sh`) has been reorganized into tiers. The old scripts are preserved for backward compatibility but the new structure should be used going forward.
-
-**Old** → **New** mapping:
-- `01-test-go-build.sh` → `tier1/01-go-unit-tests.sh`
-- `02-build-docker-image.sh` → `tier1/02-docker-build-verify.sh`
-- `03-verify-versions.sh` → `tier1/03-version-check.sh`
-- `04-test-docker-api.sh` + `05-test-buildpacks-api.sh` → `tier2/01-api-compatibility.sh`
-- `06-test-overlaybd.sh` → `tier3/01-overlaybd.sh`
-- `07-test-storage-pruning.sh` → `tier3/02-storage-pruning.sh`
-- `08-test-integration.sh` → `tier3/03-integration.sh`
-
 ## Questions?
 
 See the main rchab [README](../README.md) or [CLAUDE.md](../CLAUDE.md) for architecture details.
