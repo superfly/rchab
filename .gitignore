@@ -1,2 +1,4 @@
 id_rsa
 .vagrant/
+
+dockerproxy/dockerproxy
