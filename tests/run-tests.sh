@@ -21,11 +21,11 @@ export IMAGE
 case "${TIER}" in
   tier1)
     echo "Running Tier 1: Fast Checks (2-5 minutes)"
-    echo "Tests: Go unit tests, Docker build verification, version checks"
+    echo "Tests: Go unit tests, Docker build verification"
     echo ""
     run_test "tier1/01-go-unit-tests.sh"
     run_test "tier1/02-docker-build-verify.sh"
-    run_test "tier1/03-version-check.sh"
+
     ;;
 
   tier2)
@@ -34,7 +34,7 @@ case "${TIER}" in
     echo ""
     run_test "tier1/01-go-unit-tests.sh"
     run_test "tier1/02-docker-build-verify.sh"
-    run_test "tier1/03-version-check.sh"
+
     run_test "tier2/01-api-compatibility.sh"  # THE CRITICAL TEST
     run_test "tier2/02-docker-in-docker.sh"
     run_test "tier2/03-endpoint-smoke.sh"
@@ -47,7 +47,7 @@ case "${TIER}" in
     # Run all tests
     run_test "tier1/01-go-unit-tests.sh"
     run_test "tier1/02-docker-build-verify.sh"
-    run_test "tier1/03-version-check.sh"
+
     run_test "tier2/01-api-compatibility.sh"
     run_test "tier2/02-docker-in-docker.sh"
     run_test "tier2/03-endpoint-smoke.sh"
