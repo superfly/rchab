@@ -233,7 +233,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Install pack CLI
-        uses: buildpacks/github-actions/setup-pack@v5
+        uses: buildpacks/github-actions/setup-pack@v5.12.0
 
       - name: Run buildpacks matrix row
         env:
