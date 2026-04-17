@@ -7,6 +7,9 @@ on:
     tags:
       - 'v*.*.*'
   pull_request:
+    # Include `labeled` so applying test:tier2 / test:tier3 / test:buildpacks
+    # re-runs the workflow without requiring a fresh push.
+    types: [opened, synchronize, reopened, labeled]
 
   workflow_dispatch:
     inputs:
