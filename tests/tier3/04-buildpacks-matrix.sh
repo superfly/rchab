@@ -11,11 +11,18 @@ set -euo pipefail
 #   FIXTURE_DIR     — absolute path to one of tests/fixtures/buildpacks/<lang>/
 #   RUNTIME_VERSION — version string substituted into *.tmpl files
 #   EXPECT_FAIL     — when set to 1, a failing `pack build` exits 0 with a
-#                     "still broken" banner; if it succeeds, print a surprised
-#                     banner and exit 0 (because surprise success is still info,
-#                     not a regression).
+#                     "still broken" banner. If it *succeeds* while marked
+#                     EXPECT_FAIL=1, we exit 5 (non-zero) so the matrix row
+#                     surfaces as red and someone updates the matrix config
+#                     to drop the expected-fail marker.
 #
-# Exit codes: 0 on expected outcome, non-zero otherwise.
+# Exit codes:
+#   0  expected outcome (success when EXPECT_FAIL=0, failure when EXPECT_FAIL=1)
+#   2  invalid inputs (missing fixture dir or pack CLI)
+#   3  rchab container didn't come up
+#   4  pack build produced an image without an entrypoint/cmd
+#   5  unexpected success (pack succeeded on a row marked EXPECT_FAIL=1)
+#   *  pack exit code on an unexpected failure
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/common.sh"
