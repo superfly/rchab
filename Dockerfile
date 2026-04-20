@@ -5,7 +5,7 @@ RUN GOOS=linux GARCH=amd64 CGO_ENABLED=0 go build -o dockerproxy -ldflags "-X ma
 
 FROM docker:24.0.7-alpine3.19
 ARG BUILD_SHA
-RUN apk add bash pigz sysstat procps lsof util-linux-misc xz curl sudo e2fsprogs
+RUN apk add bash pigz sysstat procps lsof util-linux-misc xz curl sudo
 COPY etc/docker/daemon.json /etc/docker/daemon.json
 COPY --from=dockerproxy_build /app/dockerproxy /dockerproxy
 COPY --from=docker/buildx-bin:v0.12 /buildx /usr/libexec/docker/cli-plugins/docker-buildx
