@@ -42,10 +42,16 @@ docker exec rchab-test docker system info > /dev/null
 
 echo "✓ All API operations succeeded"
 
-# Test 4: Simulate buildpacks-style API client
+# Test 4: Simulate buildpacks-style API client.
+#
+# This is the CRITICAL test — if the Go toolchain or Docker SDK can't build
+# against API v1.44, we fail loudly rather than silently skipping. Build in
+# an isolated dir so we don't leak go.mod/go.sum alongside unrelated tests.
 echo ""
 echo "Test 4: Buildpacks-style API client test..."
-cat > /tmp/test-buildpacks-api.go <<'GOEOF'
+
+BUILD_DIR="$(mktemp -d)"
+cat > "${BUILD_DIR}/main.go" <<'GOEOF'
 package main
 
 import (
@@ -94,22 +100,16 @@ func main() {
 }
 GOEOF
 
-cd /tmp
-export DOCKER_HOST=tcp://localhost:2375
-go mod init test-buildpacks-api 2>/dev/null || true
-go mod edit -require github.com/docker/docker@v25.0.5+incompatible
-go mod tidy -e 2>/dev/null
-
-if go build -o test-buildpacks-api test-buildpacks-api.go 2>/dev/null && [ -f test-buildpacks-api ]; then
-    ./test-buildpacks-api || {
-        echo "✗ ERROR: Buildpacks API compatibility test failed"
-        rm -f test-buildpacks-api test-buildpacks-api.go go.mod go.sum
-        exit 1
-    }
-    rm -f test-buildpacks-api test-buildpacks-api.go go.mod go.sum
-else
-    echo "⚠ Could not build Go test client, skipping programmatic test"
-fi
+(
+  cd "${BUILD_DIR}"
+  export DOCKER_HOST=tcp://localhost:2375
+  go mod init test-buildpacks-api
+  go mod edit -require github.com/docker/docker@v25.0.5+incompatible
+  go mod tidy
+  go build -o test-buildpacks-api main.go
+  ./test-buildpacks-api
+)
+rm -rf "${BUILD_DIR}"
 
 echo ""
 echo "🎯 PRIMARY OBJECTIVE VERIFIED: API v1.44 is working!"
