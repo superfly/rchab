@@ -34,8 +34,13 @@ run_test() {
 }
 
 # Function to start rchab container for testing
+#
+# Bypasses the normal entrypoint (which would require --privileged setup of
+# docker-entrypoint.d scripts) and runs dockerd + dockerproxy directly. Then
+# polls the Docker API on :2375 until it responds, rather than blind-sleeping.
 start_rchab_container() {
   local image="${1:-flyio/rchab:test}"
+  local timeout="${RCHAB_READY_TIMEOUT:-60}"
 
   echo "Starting rchab container: ${image}"
 
@@ -51,8 +56,23 @@ start_rchab_container() {
     --entrypoint /bin/sh \
     "${image}" -c "dockerd &>/var/log/dockerd.log & sleep 5 && /dockerproxy"
 
-  echo "Waiting for services to start (45 seconds)..."
-  sleep 45
+  echo "Waiting for rchab to become ready (timeout: ${timeout}s)..."
+  local elapsed=0
+  until curl -sf --max-time 2 http://127.0.0.1:2375/_ping >/dev/null 2>&1; do
+    if ! is_container_running; then
+      echo "rchab-test container exited before becoming ready. Logs:" >&2
+      docker logs rchab-test 2>&1 | tail -50 >&2 || true
+      return 1
+    fi
+    if (( elapsed >= timeout )); then
+      echo "rchab did not respond on :2375 within ${timeout}s. Logs:" >&2
+      docker logs rchab-test 2>&1 | tail -50 >&2 || true
+      return 1
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  echo "rchab ready after ${elapsed}s"
 }
 
 # Function to stop rchab container
