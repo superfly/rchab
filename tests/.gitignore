@@ -1,0 +1,10 @@
+# Ignore all test outputs and logs
+*.log
+/tmp/
+*.txt
+
+# Keep the test scripts themselves
+!*.sh
+
+# Keep buildpacks test fixtures (requirements.txt, runtime.txt, etc. are source, not output)
+!fixtures/**/*.txt

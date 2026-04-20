@@ -3,54 +3,302 @@ name: ci
 on:
   push:
     branches:
-      - '**'
+      - 'main'
     tags:
       - 'v*.*.*'
   pull_request:
-    branches:
-      - 'main'
+    # Include `labeled` so applying test:tier2 / test:tier3 / test:buildpacks
+    # re-runs the workflow without requiring a fresh push.
+    types: [opened, synchronize, reopened, labeled]
+
+  workflow_dispatch:
+    inputs:
+      test_tier:
+        description: 'Test tier to run'
+        required: false
+        default: 'tier1'
+        type: choice
+        options:
+          - tier1
+          - tier2
+          - tier3
+
+# Cancel in-progress runs for same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  main:
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      -
-        name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          # list of Docker images to use as base name for tags
-          images: |
-            flyio/rchab
-          # generate Docker tags based on the following events/attributes
+          go-version-file: 'dockerproxy/go.mod'
+          cache-dependency-path: 'dockerproxy/go.sum'
+
+      - name: Run go vet
+        working-directory: ./dockerproxy
+        run: go vet ./...
+
+      - name: Check formatting
+        working-directory: ./dockerproxy
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Code is not properly formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Verify go modules
+        working-directory: ./dockerproxy
+        run: go mod verify
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'dockerproxy/go.mod'
+          cache-dependency-path: 'dockerproxy/go.sum'
+
+      - name: Run Go unit tests
+        working-directory: ./dockerproxy
+        run: go test -v ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image for testing
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: flyio/rchab:test
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Determine test tier
+        id: tier
+        run: |
+          # Default tiers based on event
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TIER="${{ github.event.inputs.test_tier }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TIER="tier3"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            TIER="tier2"
+          else
+            TIER="tier1"
+          fi
+
+          # Check for PR labels to force higher tiers
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "${{ contains(github.event.pull_request.labels.*.name, 'test:tier3') }}" == "true" ]]; then
+              TIER="tier3"
+            elif [[ "${{ contains(github.event.pull_request.labels.*.name, 'test:tier2') }}" == "true" ]]; then
+              TIER="tier2"
+            fi
+          fi
+
+          echo "tier=${TIER}" >> $GITHUB_OUTPUT
+          echo "Running test tier: ${TIER}"
+
+      - name: Run Tier 1 tests (fast)
+        if: steps.tier.outputs.tier == 'tier1' || steps.tier.outputs.tier == 'tier2' || steps.tier.outputs.tier == 'tier3'
+        run: |
+          cd tests
+          ./run-tests.sh tier1
+
+      - name: Run Tier 2 tests (critical)
+        if: steps.tier.outputs.tier == 'tier2' || steps.tier.outputs.tier == 'tier3'
+        run: |
+          cd tests
+          ./run-tests.sh tier2
+
+      - name: Run Tier 3 tests (full)
+        if: steps.tier.outputs.tier == 'tier3'
+        run: |
+          cd tests
+          ./run-tests.sh tier3
+
+  buildpacks:
+    name: Buildpacks matrix (${{ matrix.builder }} / ${{ matrix.lang }})
+    needs: [lint, test]
+    # Run on:
+    #   - pushes to main (regression visibility against older builders)
+    #   - release tags (full sign-off)
+    #   - PRs labelled `test:buildpacks` (opt-in because image pulls are heavy)
+    #   - workflow_dispatch (manual)
+    if: >-
+      github.event_name == 'push'
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'test:buildpacks'))
+    runs-on: ubuntu-latest
+    # Do NOT fail the whole pipeline on any one row — this job is informational.
+    # Individual rows can be promoted to required-status later once stable.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --- Current generation (baseline) ---
+          - builder: "heroku/builder:24"
+            lang: ruby
+            fixture: ruby
+            runtime_version: "3.3.5p100"
+            expect_fail: "0"
+            note: "current, Ubuntu 24.04"
+          - builder: "heroku/builder:24"
+            lang: nodejs
+            fixture: nodejs
+            runtime_version: "20"
+            expect_fail: "0"
+            note: "current, Ubuntu 24.04"
+
+          # --- Previous generation, still supported upstream ---
+          - builder: "heroku/builder:22"
+            lang: ruby
+            fixture: ruby
+            runtime_version: "3.2.5"
+            expect_fail: "0"
+            note: "Ubuntu 22.04"
+          - builder: "heroku/builder:22"
+            lang: python
+            fixture: python
+            runtime_version: "3.11.9"
+            expect_fail: "0"
+            note: "Ubuntu 22.04"
+
+          # --- Classic CNB builder, bridged the shimmed-buildpack era ---
+          - builder: "heroku/builder-classic:cnb"
+            lang: ruby
+            fixture: ruby
+            runtime_version: "2.7.8"
+            expect_fail: "1"
+            note: "classic CNB, likely EOL upstream"
+
+          # --- Older Heroku CNB that predates the builder:<N> naming ---
+          - builder: "heroku/buildpacks:20"
+            lang: ruby
+            fixture: ruby
+            runtime_version: "2.7.8"
+            expect_fail: "1"
+            note: "heroku-20, retired upstream — S3 403s expected"
+
+          # --- Non-Heroku CNB families we de-facto support ---
+          - builder: "paketobuildpacks/builder-jammy-base"
+            lang: nodejs
+            fixture: nodejs
+            runtime_version: "20"
+            expect_fail: "0"
+            note: "Paketo"
+          - builder: "gcr.io/buildpacks/builder:v1"
+            lang: python
+            fixture: python
+            runtime_version: "3.11.9"
+            expect_fail: "0"
+            note: "Google Cloud Buildpacks"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build rchab image for testing
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: flyio/rchab:test
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install pack CLI
+        uses: buildpacks/github-actions/setup-pack@v5.12.0
+
+      - name: Run buildpacks matrix row
+        env:
+          IMAGE: flyio/rchab:test
+          BUILDER: ${{ matrix.builder }}
+          FIXTURE_DIR: ${{ github.workspace }}/tests/fixtures/buildpacks/${{ matrix.fixture }}
+          RUNTIME_VERSION: ${{ matrix.runtime_version }}
+          EXPECT_FAIL: ${{ matrix.expect_fail }}
+        run: |
+          echo "Matrix row: ${{ matrix.note }}"
+          bash tests/tier3/04-buildpacks-matrix.sh
+
+      - name: Upload rchab logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          # Sanitize the builder string — GH artifact names forbid '/' and ':'.
+          name: rchab-logs-${{ matrix.fixture }}-${{ matrix.runtime_version }}-${{ strategy.job-index }}
+          path: |
+            /tmp/rchab-test-*.log
+          if-no-files-found: ignore
+
+  build:
+    name: Build and Push
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: flyio/rchab
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=sha
-      -
-        name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
-      -
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-      -
-        name: Login to DockerHub
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.FLYIOBUILDS_DOCKERHUB_USERNAME }}
           password: ${{ secrets.FLYIOBUILDS_DOCKERHUB_TOKEN }}
-      -
-        name: Build and push
+
+      - name: Build and push
         id: docker_build
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v5
         with:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BUILD_SHA=${{ github.sha }}
-      -
-        name: Image digest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
