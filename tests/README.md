@@ -59,8 +59,7 @@ tests/
 │   └── common.sh              # Shared test functions
 ├── tier1/                     # Fast checks (2-5 min)
 │   ├── 01-go-unit-tests.sh
-│   ├── 02-docker-build-verify.sh
-│   └── 03-version-check.sh
+│   └── 02-docker-build-verify.sh
 ├── tier2/                     # Critical tests (10-15 min)
 │   ├── 01-api-compatibility.sh  # ⭐ CRITICAL: API v1.44
 │   ├── 02-docker-in-docker.sh
@@ -68,7 +67,8 @@ tests/
 ├── tier3/                     # Full suite (30-45 min)
 │   ├── 01-overlaybd.sh
 │   ├── 02-storage-pruning.sh
-│   └── 03-integration.sh
+│   ├── 03-integration.sh
+│   └── 04-buildpacks-matrix.sh  # CI-only: pack build × builder matrix
 ├── run-tests.sh               # Smart test runner
 └── README.md                  # This file
 ```
@@ -82,7 +82,6 @@ tests/
 **Tests**:
 - `01-go-unit-tests.sh` - Go unit tests, `go vet`, module verification
 - `02-docker-build-verify.sh` - Verify Docker image builds successfully
-- `03-version-check.sh` - Verify Docker 25.0.5 and API v1.44+
 
 **When it runs**:
 - ✅ Every PR (default)
@@ -237,8 +236,7 @@ Install pre-commit hooks to catch issues before pushing:
 # Install pre-commit (if not already installed)
 pip install pre-commit  # or: brew install pre-commit
 
-# Install the git hooks
-cd /home/sprite/flyctl/rchab
+# Install the git hooks (run from the repo root)
 pre-commit install
 
 # Run manually on all files
